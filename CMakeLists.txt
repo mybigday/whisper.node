@@ -173,6 +173,23 @@ string(REPLACE "\"" "" NODE_ADDON_API_DIR "${NODE_ADDON_API_DIR}")
 file(GLOB_RECURSE SOURCES "src/*.cc" "src/*.cpp" "src/*.c")
 list(APPEND SOURCES "whisper.cpp/examples/common-whisper.cpp")
 
+# Handle Windows cross-compilation without MSVC (similar to llama.node)
+if (NOT MSVC AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  file(GLOB WIN_DYNAMIC_LOAD_SRC "src/win_dynamic_load.c")
+
+  add_library(win_dynamic_load ${WIN_DYNAMIC_LOAD_SRC})
+  set_target_properties(win_dynamic_load PROPERTIES COMPILE_FLAGS "-Wno-implicit-function-declaration")
+  
+  unset(CMAKE_JS_SRC)
+  unset(CMAKE_JS_LIB)
+  unset(CMAKE_JS_NODELIB_DEF)
+  unset(CMAKE_JS_NODELIB_TARGET)
+  unset(CMAKE_JS_NODELIB_TARGET_NAME)
+  string(REGEX REPLACE "/DELAYLOAD:NODE.EXE" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+
+  set(CMAKE_JS_LIB win_dynamic_load)
+endif()
+
 # Create the addon
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
@@ -242,6 +259,11 @@ if (TO_PACKAGE)
   set(METAL_LIB_TARGET_PATH ${PLATFORM_BINARY_DIR})
 else()
   set(METAL_LIB_TARGET_PATH ${CMAKE_BINARY_DIR}/bin/default.metallib)
+endif()
+
+# Generate node.lib if needed (for Windows)
+if(CMAKE_JS_NODELIB_DEF AND CMAKE_JS_NODELIB_TARGET)
+  execute_process(COMMAND ${CMAKE_AR} /def:${CMAKE_JS_NODELIB_DEF} /out:${CMAKE_JS_NODELIB_TARGET} ${CMAKE_STATIC_LINKER_FLAGS})
 endif()
 
 if (GGML_METAL AND NOT GGML_METAL_EMBED_LIBRARY)
