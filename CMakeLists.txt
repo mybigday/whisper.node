@@ -9,13 +9,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Apply whisper.cpp patches if available
-# if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch)
-#   execute_process(COMMAND
-#     git apply ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
-#     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-#     ERROR_QUIET
-#   )
-# endif()
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch)
+  execute_process(COMMAND
+    git apply ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    ERROR_QUIET
+  )
+endif()
 
 # NAPI version setup
 if(NOT DEFINED napi_build_version)
