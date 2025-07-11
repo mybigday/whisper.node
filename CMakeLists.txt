@@ -127,6 +127,7 @@ file(
     "src/WhisperContext.cpp"
     "src/WhisperContext.h"
 )
+list(APPEND SOURCE_FILES "whisper.cpp/examples/common-whisper.cpp")
 
 if (NOT MSVC AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
   file(GLOB WIN_DYNAMIC_LOAD_SRC "src/win_dynamic_load.c")
