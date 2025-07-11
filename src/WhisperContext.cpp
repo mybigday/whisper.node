@@ -428,8 +428,40 @@ Napi::Value WhisperVadContext::GetModelInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value WhisperVadContext::DetectSpeechFile(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+
+    if (info.Length() < 1) {
+        Napi::TypeError::New(env, "Expected file path").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string filePath = whisper_utils::getString(info[0]);
+    auto options = info.Length() >= 2 && info[1].IsObject() ?
+        info[1].As<Napi::Object>() : Napi::Object::New(env);
+
     auto deferred = Napi::Promise::Deferred::New(env);
-    deferred.Reject(Napi::Error::New(env, "File VAD not implemented yet").Value());
+
+    try {
+        // Load audio file
+        std::vector<float> audioData = whisper_utils::loadAudioFile(filePath);
+
+        // Create async worker - pass shared pointer to session
+        auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
+            if (cbInfo.Length() >= 2) {
+                if (!cbInfo[0].IsNull()) {
+                    deferred.Reject(cbInfo[0]);
+                } else {
+                    deferred.Resolve(cbInfo[1]);
+                }
+            }
+        });
+
+        auto worker = new WhisperVadWorker(callback, _sess, audioData);
+        worker->Queue();
+
+    } catch (const std::exception& e) {
+        deferred.Reject(Napi::Error::New(env, e.what()).Value());
+    }
+
     return deferred.Promise();
 }
 
