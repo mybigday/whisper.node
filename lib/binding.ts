@@ -99,6 +99,10 @@ export interface VadResult {
 
 export interface WhisperContext {
   new (options: WhisperModelOptions): WhisperContext
+  transcribe(
+    filePath: string,
+    options?: TranscribeOptions,
+  ): Promise<TranscribeResult>
   transcribeFile(
     filePath: string,
     options?: TranscribeOptions,
@@ -114,6 +118,7 @@ export interface WhisperContext {
 
 export interface WhisperVadContext {
   new (options: VadModelOptions): WhisperVadContext
+  detectSpeech(filePath: string, options?: VadOptions): Promise<VadResult>
   detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadResult>
   detectSpeechData(
     audioData: ArrayBuffer,

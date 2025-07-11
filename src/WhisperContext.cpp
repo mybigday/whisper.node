@@ -246,6 +246,7 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("getSystemInfo", &WhisperContext::GetSystemInfo),
         InstanceMethod("getModelInfo", &WhisperContext::GetModelInfo),
         InstanceMethod("transcribeFile", &WhisperContext::TranscribeFile),
+        InstanceMethod("transcribe", &WhisperContext::TranscribeFile),
         InstanceMethod("transcribeData", &WhisperContext::TranscribeData),
         InstanceMethod("release", &WhisperContext::Release),
     });
@@ -448,6 +449,7 @@ void WhisperVadContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("getSystemInfo", &WhisperVadContext::GetSystemInfo),
         InstanceMethod("getModelInfo", &WhisperVadContext::GetModelInfo),
         InstanceMethod("detectSpeechFile", &WhisperVadContext::DetectSpeechFile),
+        InstanceMethod("detectSpeech", &WhisperVadContext::DetectSpeechFile),
         InstanceMethod("detectSpeechData", &WhisperVadContext::DetectSpeechData),
         InstanceMethod("release", &WhisperVadContext::Release),
     });
