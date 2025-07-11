@@ -58,7 +58,12 @@ describe('Voice Activity Detection (VAD)', () => {
     });
 
     const result = await context.detectSpeechData(audioBuffer, {
-      // VAD options
+      threshold: 0.5,
+      minSpeechDurationMs: 250,
+      minSilenceDurationMs: 100,
+      maxSpeechDurationS: 30,
+      speechPadMs: 30,
+      samplesOverlap: 0.1
     });
 
     expect(result).toBeDefined();

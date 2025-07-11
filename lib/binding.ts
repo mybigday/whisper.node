@@ -39,8 +39,18 @@ export interface TranscribeResult {
 }
 
 export interface VadOptions {
-  offset_ms?: number
-  duration_ms?: number
+  /** Probability threshold to consider as speech (Default: 0.5) */
+  threshold?: number,
+  /** Min duration for a valid speech segment in ms (Default: 250) */
+  minSpeechDurationMs?: number,
+  /** Min silence duration to consider speech as ended in ms (Default: 100) */
+  minSilenceDurationMs?: number,
+  /** Max duration of a speech segment before forcing a new segment in seconds (Default: 30) */
+  maxSpeechDurationS?: number,
+  /** Padding added before and after speech segments in ms (Default: 30) */
+  speechPadMs?: number,
+  /** Overlap in seconds when copying audio samples from speech segment (Default: 0.1) */
+  samplesOverlap?: number,
 }
 
 export interface VadSegment {

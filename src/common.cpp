@@ -164,15 +164,15 @@ whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
 
         if (key == "threshold" && value.IsNumber()) {
             params.threshold = value.As<Napi::Number>().FloatValue();
-        } else if (key == "min_speech_duration_ms" && value.IsNumber()) {
+        } else if (key == "minSpeechDurationMs" && value.IsNumber()) {
             params.min_speech_duration_ms = value.As<Napi::Number>().Int32Value();
-        } else if (key == "min_silence_duration_ms" && value.IsNumber()) {
+        } else if (key == "minSilenceDurationMs" && value.IsNumber()) {
             params.min_silence_duration_ms = value.As<Napi::Number>().Int32Value();
-        } else if (key == "max_speech_duration_s" && value.IsNumber()) {
+        } else if (key == "maxSpeechDurationS" && value.IsNumber()) {
             params.max_speech_duration_s = value.As<Napi::Number>().FloatValue();
-        } else if (key == "speech_pad_ms" && value.IsNumber()) {
+        } else if (key == "speechPadMs" && value.IsNumber()) {
             params.speech_pad_ms = value.As<Napi::Number>().Int32Value();
-        } else if (key == "samples_overlap" && value.IsNumber()) {
+        } else if (key == "samplesOverlap" && value.IsNumber()) {
             params.samples_overlap = value.As<Napi::Number>().FloatValue();
         }
     }
