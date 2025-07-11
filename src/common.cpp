@@ -183,7 +183,7 @@ whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
 Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted) {
     auto result = Napi::Object::New(env);
     result.Set("result", text);
-    result.Set("is_aborted", aborted);
+    result.Set("isAborted", aborted);
 
     // Create segments array
     auto segments = Napi::Array::New(env);

@@ -69,18 +69,11 @@ export interface TranscribeOptions {
 export interface TranscribeResult {
   result: string
   segments: Array<{
-    start: number
-    end: number
     text: string
-    tokens?: number[]
-    words?: Array<{
-      start: number
-      end: number
-      word: string
-      probability: number
-    }>
+    t0: number
+    t1: number
   }>
-  language: string
+  isAborted: boolean
 }
 
 export interface VadOptions {

@@ -152,7 +152,7 @@ describe('Whisper transcription', () => {
     })
 
     expect(await context.transcribeData(invalidBuffer)).toEqual({
-      is_aborted: false,
+      isAborted: false,
       result: '',
       segments: [],
     })
