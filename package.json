@@ -65,10 +65,6 @@
     "@fugood/node-whisper-darwin-x64": "1.0.0",
     "@fugood/node-whisper-darwin-arm64": "1.0.0"
   },
-  "dependencies": {
-    "cmake-js": "^7.3.0",
-    "node-addon-api": "^8.0.0"
-  },
   "devDependencies": {
     "@babel/preset-env": "^7.24.4",
     "@babel/preset-typescript": "^7.24.1",
