@@ -121,17 +121,17 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
             params.language = lang.c_str();
         } else if (key == "translate" && value.IsBoolean()) {
             params.translate = value.As<Napi::Boolean>().Value();
-        } else if (key == "max_threads" && value.IsNumber()) {
+        } else if (key == "maxThreads" && value.IsNumber()) {
             params.n_threads = value.As<Napi::Number>().Int32Value();
-        } else if (key == "max_context" && value.IsNumber()) {
+        } else if (key == "maxContext" && value.IsNumber()) {
             params.n_max_text_ctx = value.As<Napi::Number>().Int32Value();
-        } else if (key == "max_len" && value.IsNumber()) {
+        } else if (key == "maxLen" && value.IsNumber()) {
             params.max_len = value.As<Napi::Number>().Int32Value();
-        } else if (key == "token_timestamps" && value.IsBoolean()) {
+        } else if (key == "tokenTimestamps" && value.IsBoolean()) {
             params.token_timestamps = value.As<Napi::Boolean>().Value();
-        } else if (key == "tdrz_enable" && value.IsBoolean()) {
+        } else if (key == "tdrzEnable" && value.IsBoolean()) {
             params.tdrz_enable = value.As<Napi::Boolean>().Value();
-        } else if (key == "word_thold" && value.IsNumber()) {
+        } else if (key == "wordThold" && value.IsNumber()) {
             params.thold_pt = value.As<Napi::Number>().FloatValue();
         } else if (key == "offset" && value.IsNumber()) {
             params.offset_ms = value.As<Napi::Number>().Int32Value();
@@ -139,11 +139,11 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
             params.duration_ms = value.As<Napi::Number>().Int32Value();
         } else if (key == "temperature" && value.IsNumber()) {
             params.temperature = value.As<Napi::Number>().FloatValue();
-        } else if (key == "temperature_inc" && value.IsNumber()) {
+        } else if (key == "temperatureInc" && value.IsNumber()) {
             params.temperature_inc = value.As<Napi::Number>().FloatValue();
-        } else if (key == "beam_size" && value.IsNumber()) {
+        } else if (key == "beamSize" && value.IsNumber()) {
             params.beam_search.beam_size = value.As<Napi::Number>().Int32Value();
-        } else if (key == "best_of" && value.IsNumber()) {
+        } else if (key == "bestOf" && value.IsNumber()) {
             params.greedy.best_of = value.As<Napi::Number>().Int32Value();
         } else if (key == "prompt" && value.IsString()) {
             std::string prompt = value.As<Napi::String>().Utf8Value();

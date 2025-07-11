@@ -48,22 +48,19 @@ export interface VadModelOptions {
 export interface TranscribeOptions {
   language?: string
   translate?: boolean
-  offset_ms?: number
-  duration_ms?: number
-  max_len?: number
-  split_on_word?: boolean
-  token_timestamps?: boolean
-  speed_up?: boolean
-  prompt?: string
-  suppress_blank?: boolean
-  suppress_non_speech_tokens?: boolean
+  maxThreads?: number
+  maxContext?: number
+  maxLen?: number
+  tokenTimestamps?: boolean
+  tdrzEnable?: boolean
+  wordThold?: number
+  offset?: number
+  duration?: number
   temperature?: number
-  max_initial_ts?: number
-  length_penalty?: number
-  temperature_inc?: number
-  entropy_thold?: number
-  logprob_thold?: number
-  no_speech_thold?: number
+  temperatureInc?: number
+  beamSize?: number
+  bestOf?: number
+  prompt?: string
 }
 
 export interface TranscribeResult {
