@@ -74,6 +74,12 @@ export interface WhisperContext {
   ): Promise<TranscribeResult>
   release(): Promise<void>
   getModelInfo(): object
+  
+  // static methods
+  toggleNativeLog(
+    enable: boolean,
+    callback: (level: string, text: string) => void,
+  ): void
 }
 
 export interface WhisperVadContext {
@@ -86,6 +92,12 @@ export interface WhisperVadContext {
   ): Promise<VadSegment[]>
   release(): Promise<void>
   getModelInfo(): object
+  
+  // static methods
+  toggleNativeLog(
+    enable: boolean,
+    callback: (level: string, text: string) => void,
+  ): void
 }
 
 export interface Module {

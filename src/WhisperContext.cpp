@@ -220,11 +220,47 @@ WhisperContext::~WhisperContext() {
     // The worker will clean itself up when it completes
 }
 
+// Static JavaScript callback function for logging
+static Napi::ThreadSafeFunction g_js_log_callback;
+
+// C++ wrapper function that calls the JavaScript callback
+void whisper_log_callback_js(const char* level, const char* text) {
+    if (g_js_log_callback) {
+        g_js_log_callback.NonBlockingCall([level, text](Napi::Env env, Napi::Function jsCallback) {
+            std::string level_str(level);
+            std::string text_str(text);
+            jsCallback.Call({Napi::String::New(env, level_str), Napi::String::New(env, text_str)});
+        });
+    }
+}
+
 void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
     if (info.Length() < 1) return;
 
     bool enable = whisper_utils::getBool(info[0], false);
-    g_log_enabled = enable;
+    
+    if (enable) {
+        // If enabling logging and a callback is provided, set it up
+        if (info.Length() >= 2 && info[1].IsFunction()) {
+            auto callback = info[1].As<Napi::Function>();
+            g_js_log_callback = Napi::ThreadSafeFunction::New(
+                info.Env(),
+                callback,
+                "whisper_log_callback",
+                0,
+                1
+            );
+            g_log_callback = whisper_log_callback_js;
+        }
+        g_log_enabled = true;
+    } else {
+        // Disable logging
+        g_log_enabled = false;
+        g_log_callback = nullptr;
+        if (g_js_log_callback) {
+            g_js_log_callback.Release();
+        }
+    }
 }
 
 Napi::Value WhisperContext::ModelInfo(const Napi::CallbackInfo& info) {
@@ -420,7 +456,29 @@ void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
     if (info.Length() < 1) return;
 
     bool enable = whisper_utils::getBool(info[0], false);
-    g_log_enabled = enable;
+    
+    if (enable) {
+        // If enabling logging and a callback is provided, set it up
+        if (info.Length() >= 2 && info[1].IsFunction()) {
+            auto callback = info[1].As<Napi::Function>();
+            g_js_log_callback = Napi::ThreadSafeFunction::New(
+                info.Env(),
+                callback,
+                "whisper_log_callback",
+                0,
+                1
+            );
+            g_log_callback = whisper_log_callback_js;
+        }
+        g_log_enabled = true;
+    } else {
+        // Disable logging
+        g_log_enabled = false;
+        g_log_callback = nullptr;
+        if (g_js_log_callback) {
+            g_js_log_callback.Release();
+        }
+    }
 }
 
 Napi::Value WhisperVadContext::ModelInfo(const Napi::CallbackInfo& info) {
