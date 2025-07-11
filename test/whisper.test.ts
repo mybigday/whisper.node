@@ -2,8 +2,6 @@ import fs from 'fs'
 import path from 'path'
 import {
   initWhisper,
-  createAudioBuffer,
-  audioBufferToFloat32Array,
 } from '../lib/index'
 
 // Test configuration
@@ -46,38 +44,6 @@ function loadWavFile(filePath: string) {
     audioData.byteOffset + audioData.byteLength,
   )
 }
-
-describe('Audio utilities', () => {
-  test('should create test audio buffer', () => {
-    const buffer = createTestAudioBuffer(1000, 440)
-    expect(buffer).toBeInstanceOf(ArrayBuffer)
-    expect(buffer.byteLength).toBe(32000) // 16000 samples * 2 bytes
-  })
-
-  test('should convert Float32Array to ArrayBuffer', () => {
-    const float32Data = new Float32Array([0.5, -0.5, 1.0, -1.0, 0.0])
-    const buffer = createAudioBuffer(float32Data)
-
-    expect(buffer).toBeInstanceOf(ArrayBuffer)
-    expect(buffer.byteLength).toBe(10) // 5 samples * 2 bytes
-  })
-
-  test('should convert ArrayBuffer to Float32Array', () => {
-    const buffer = createTestAudioBuffer(100, 440)
-    const float32Data = audioBufferToFloat32Array(buffer)
-
-    expect(float32Data).toBeInstanceOf(Float32Array)
-    expect(float32Data.length).toBe(buffer.byteLength / 2)
-  })
-
-  test('should load JFK audio sample', () => {
-    expect(() => {
-      const audioBuffer = loadWavFile(SAMPLE_AUDIO_PATH)
-      expect(audioBuffer).toBeInstanceOf(ArrayBuffer)
-      expect(audioBuffer.byteLength).toBeGreaterThan(0)
-    }).not.toThrow()
-  })
-})
 
 describe('Whisper transcription', () => {
   const modelPath = path.join(

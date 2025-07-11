@@ -69,61 +69,9 @@ export const initWhisperVad = async (
   return new module.WhisperVadContext(options);
 };
 
-/**
- * Utility function to create AudioBuffer from Float32Array
- * @param audioData - Float32Array audio data
- * @param sampleRate - Sample rate (default: 16000)
- * @returns ArrayBuffer containing 16-bit PCM audio data
- */
-export const createAudioBuffer = (audioData: Float32Array, sampleRate = 16000): ArrayBuffer => {
-  const buffer = new ArrayBuffer(audioData.length * 2);
-  const view = new DataView(buffer);
-
-  for (let i = 0; i < audioData.length; i++) {
-    const sample = Math.max(-1, Math.min(1, audioData[i]));
-    view.setInt16(i * 2, sample * 0x7FFF, true);
-  }
-
-  return buffer;
-};
-
-/**
- * Utility function to convert ArrayBuffer to Float32Array
- * @param buffer - ArrayBuffer containing 16-bit PCM audio data
- * @returns Float32Array with normalized audio data
- */
-export const audioBufferToFloat32Array = (buffer: ArrayBuffer): Float32Array => {
-  const view = new DataView(buffer);
-  const samples = new Float32Array(buffer.byteLength / 2);
-
-  for (let i = 0; i < samples.length; i++) {
-    samples[i] = view.getInt16(i * 2, true) / 0x7FFF;
-  }
-
-  return samples;
-};
-
-/**
- * Get system information about the loaded whisper module
- * @param variant - Optional backend variant to use
- * @returns Promise that resolves to system information string
- */
-export const getSystemInfo = async (variant?: LibVariant): Promise<string> => {
-  const module = await loadWhisperModule(variant);
-  const context = new module.WhisperContext({ model: '' });
-  try {
-    return context.getSystemInfo();
-  } finally {
-    await context.release();
-  }
-};
-
 // Default export
 export default {
   initWhisper,
   initWhisperVad,
-  createAudioBuffer,
-  audioBufferToFloat32Array,
-  getSystemInfo,
   loadWhisperModule
 };
