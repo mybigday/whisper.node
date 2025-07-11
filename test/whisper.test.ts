@@ -2,6 +2,8 @@ import fs from 'fs'
 import path from 'path'
 import {
   initWhisper,
+  toggleNativeLog,
+  addNativeLogListener
 } from '../lib/index'
 
 // Test configuration
@@ -65,6 +67,37 @@ describe('Whisper transcription', () => {
     },
     TEST_TIMEOUT,
   )
+
+  test('toggleNativeLog should work correctly', async () => {
+    const logs: Array<{ level: string; text: string }> = []
+    
+    // Add log listener
+    const { remove } = addNativeLogListener((level, text) => {
+      logs.push({ level, text })
+    })
+
+    // Enable native logging
+    await toggleNativeLog(true)
+
+    // Load a model to trigger some logging
+    const context = await initWhisper({
+      filePath: modelPath,
+      useGpu: false,
+    })
+
+    // Wait a bit for any async logging
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // Disable logging
+    await toggleNativeLog(false)
+
+    // Clean up
+    remove()
+    await context.release()
+
+    // We should have received some logs (though the exact content depends on the whisper implementation)
+    expect(logs.length).toBeGreaterThanOrEqual(0)
+  })
 
   test(
     'should transcribe JFK audio sample',

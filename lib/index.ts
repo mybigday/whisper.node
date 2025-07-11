@@ -28,6 +28,38 @@ export type {
 // Global module cache
 let moduleCache: Module | null = null;
 
+// Log management
+const logListeners: Array<(level: string, text: string) => void> = []
+
+const logCallback = (level: string, text: string) => {
+  logListeners.forEach((listener) => listener(level, text))
+}
+
+let logEnabled = false
+
+const refreshNativeLogSetup = () => {
+  if (moduleCache) {
+    moduleCache.WhisperContext.toggleNativeLog(logEnabled, logCallback)
+    moduleCache.WhisperVadContext.toggleNativeLog(logEnabled, logCallback)
+  }
+}
+
+export const toggleNativeLog = async (enable: boolean) => {
+  logEnabled = enable
+  refreshNativeLogSetup()
+}
+
+export function addNativeLogListener(
+  listener: (level: string, text: string) => void,
+): { remove: () => void } {
+  logListeners.push(listener)
+  return {
+    remove: () => {
+      logListeners.splice(logListeners.indexOf(listener), 1)
+    },
+  }
+}
+
 /**
  * Load the whisper.node module with the specified variant
  * @param variant - The backend variant to use ('default', 'vulkan', 'cuda')
@@ -36,6 +68,7 @@ let moduleCache: Module | null = null;
 export const loadWhisperModule = async (variant?: LibVariant): Promise<Module> => {
   if (!moduleCache) {
     moduleCache = await loadModule(variant);
+    refreshNativeLogSetup();
   }
   return moduleCache;
 };
@@ -73,5 +106,7 @@ export const initWhisperVad = async (
 export default {
   initWhisper,
   initWhisperVad,
-  loadWhisperModule
+  loadWhisperModule,
+  toggleNativeLog,
+  addNativeLogListener
 };
