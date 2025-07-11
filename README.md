@@ -38,9 +38,8 @@ import { initWhisper } from '@fugood/whisper.node'
 
 const context = await initWhisper({
   model: 'path/to/ggml-base.en.bin',
-  use_gpu: true,
-  n_threads: 4
-})
+  useGpu: true,
+}, libVariant)
 
 
 const result1 = await context.transcribeFile('audio1.wav', {
@@ -68,9 +67,9 @@ import { initWhisperVad } from '@fugood/whisper.node'
 // Context-based VAD (for multiple detections)
 const vadContext = await initWhisperVad({
   model: 'path/to/ggml-vad.bin',
-  use_gpu: true,
-  n_threads: 2
-})
+  useGpu: true,
+  nThreads: 2
+}, libVariant)
 
 const result = await vadContext.detectSpeechFile('audio.wav')
 
