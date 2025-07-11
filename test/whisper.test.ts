@@ -55,9 +55,8 @@ describe('Whisper transcription', () => {
     'should load whisper model and get system info',
     async () => {
       const context = await initWhisper({
-        model: modelPath,
-        use_gpu: false,
-        n_threads: 2,
+        filePath: modelPath,
+        useGpu: false,
       })
 
       expect(context).toBeDefined()
@@ -78,9 +77,8 @@ describe('Whisper transcription', () => {
       const audioBuffer = loadWavFile(SAMPLE_AUDIO_PATH)
 
       const context = await initWhisper({
-        model: modelPath,
-        use_gpu: false,
-        n_threads: 2,
+        filePath: modelPath,
+        useGpu: false,
       })
 
       const result = await context.transcribeData(audioBuffer, {
@@ -108,9 +106,8 @@ describe('Whisper transcription', () => {
     'should transcribe with context reuse',
     async () => {
       const context = await initWhisper({
-        model: modelPath,
-        use_gpu: false,
-        n_threads: 2,
+        filePath: modelPath,
+        useGpu: false,
       })
 
       const audioBuffer = createTestAudioBuffer(2000, 440)
@@ -133,7 +130,7 @@ describe('Whisper transcription', () => {
     const invalidModelPath = 'nonexistent/model.bin'
 
     await expect(
-      initWhisper({ model: invalidModelPath }),
+      initWhisper({ filePath: invalidModelPath }),
     ).rejects.toThrow()
   })
 
@@ -146,9 +143,8 @@ describe('Whisper transcription', () => {
     const invalidBuffer = new ArrayBuffer(0) // Empty buffer
 
     const context = await initWhisper({
-      model: modelPath,
-      use_gpu: false,
-      n_threads: 2,
+      filePath: modelPath,
+      useGpu: false,
     })
 
     expect(await context.transcribeData(invalidBuffer)).toEqual({
@@ -164,7 +160,7 @@ describe('Whisper transcription', () => {
     const invalidModelPath = 'nonexistent/model.bin'
 
     await expect(
-      initWhisper({ model: invalidModelPath }),
+      initWhisper({ filePath: invalidModelPath }),
     ).rejects.toThrow()
   })
 })

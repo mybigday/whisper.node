@@ -186,10 +186,9 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
     }
 
     auto options = info[0].As<Napi::Object>();
-    std::string modelPath = whisper_utils::getString(options.Get("model"));
-    bool useGpu = whisper_utils::getBool(options.Get("use_gpu"), true);
-    bool useFlashAttn = whisper_utils::getBool(options.Get("use_flash_attn"), false);
-    int nThreads = whisper_utils::getInt(options.Get("n_threads"), std::thread::hardware_concurrency());
+    std::string modelPath = whisper_utils::getString(options.Get("filePath"));
+    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), true);
+    bool useFlashAttn = whisper_utils::getBool(options.Get("useFlashAttn"), false);
 
     if (modelPath.empty()) {
         Napi::TypeError::New(env, "Model path is required").ThrowAsJavaScriptException();
@@ -214,10 +213,9 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
 
     // Build metadata
     _meta = Napi::Object::New(env);
-    _meta.Set("path", modelPath);
-    _meta.Set("use_gpu", useGpu);
-    _meta.Set("use_flash_attn", useFlashAttn);
-    _meta.Set("n_threads", nThreads);
+    _meta.Set("filePath", modelPath);
+    _meta.Set("useGpu", useGpu);
+    _meta.Set("useFlashAttn", useFlashAttn);
 }
 
 WhisperContext::~WhisperContext() {
@@ -394,9 +392,9 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
     }
 
     auto options = info[0].As<Napi::Object>();
-    std::string modelPath = whisper_utils::getString(options.Get("model"));
-    bool useGpu = whisper_utils::getBool(options.Get("use_gpu"), true);
-    int nThreads = whisper_utils::getInt(options.Get("n_threads"), std::thread::hardware_concurrency());
+    std::string modelPath = whisper_utils::getString(options.Get("filePath"));
+    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), true);
+    int nThreads = whisper_utils::getInt(options.Get("nThreads"), std::thread::hardware_concurrency());
 
     if (modelPath.empty()) {
         Napi::TypeError::New(env, "Model path is required").ThrowAsJavaScriptException();
@@ -420,9 +418,9 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
 
     // Build metadata
     _meta = Napi::Object::New(env);
-    _meta.Set("path", modelPath);
-    _meta.Set("use_gpu", useGpu);
-    _meta.Set("n_threads", nThreads);
+    _meta.Set("filePath", modelPath);
+    _meta.Set("useGpu", useGpu);
+    _meta.Set("nThreads", nThreads);
 }
 
 WhisperVadContext::~WhisperVadContext() {

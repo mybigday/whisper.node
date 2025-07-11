@@ -1,48 +1,13 @@
-export interface WhisperModelOptions {
-  model: string
-  n_threads?: number
-  n_processors?: number
-  use_gpu?: boolean
-  language?: string
-  translate?: boolean
-  no_context?: boolean
-  single_segment?: boolean
-  print_special?: boolean
-  print_progress?: boolean
-  print_realtime?: boolean
-  print_timestamps?: boolean
-  token_timestamps?: boolean
-  thold_pt?: number
-  thold_ptsum?: number
-  max_len?: number
-  split_on_word?: boolean
-  max_tokens?: number
-  speed_up?: boolean
-  audio_ctx?: number
-  prompt_tokens?: number[]
-  prompt_n_tokens?: number
-  suppress_blank?: boolean
-  suppress_non_speech_tokens?: boolean
-  temperature?: number
-  max_initial_ts?: number
-  length_penalty?: number
-  temperature_inc?: number
-  entropy_thold?: number
-  logprob_thold?: number
-  no_speech_thold?: number
-  greedy?: {
-    best_of?: number
-  }
-  beam_search?: {
-    beam_size?: number
-    patience?: number
-  }
+export interface NativeContextOptions {
+  filePath: string,
+  useFlashAttn?: boolean,
+  useGpu?: boolean,
 }
 
-export interface VadModelOptions {
-  model: string
-  n_threads?: number
-  use_gpu?: boolean
+export interface NativeVadContextOptions {
+  filePath: string,
+  useGpu?: boolean,
+  nThreads?: number,
 }
 
 export interface TranscribeOptions {
@@ -84,7 +49,7 @@ export interface VadSegment {
 }
 
 export interface WhisperContext {
-  new (options: WhisperModelOptions): WhisperContext
+  new (options: NativeContextOptions): WhisperContext
   transcribe(
     filePath: string,
     options?: TranscribeOptions,
@@ -103,7 +68,7 @@ export interface WhisperContext {
 }
 
 export interface WhisperVadContext {
-  new (options: VadModelOptions): WhisperVadContext
+  new (options: NativeVadContextOptions): WhisperVadContext
   detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechData(

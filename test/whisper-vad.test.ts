@@ -34,9 +34,9 @@ describe('Voice Activity Detection (VAD)', () => {
   test('should load VAD model and get system info', async () => {
 
     const context = await initWhisperVad({
-      model: vadModelPath,
-      use_gpu: false,
-      n_threads: 2
+      filePath: vadModelPath,
+      useGpu: false,
+      nThreads: 2
     });
 
     expect(context).toBeDefined();
@@ -52,9 +52,9 @@ describe('Voice Activity Detection (VAD)', () => {
     const audioBuffer = loadWavFile(SAMPLE_AUDIO_PATH);
 
     const context = await initWhisperVad({
-      model: vadModelPath,
-      use_gpu: false,
-      n_threads: 2
+      filePath: vadModelPath,
+      useGpu: false,
+      nThreads: 2
     });
 
     const result = await context.detectSpeechData(audioBuffer, {
@@ -87,9 +87,9 @@ describe('Voice Activity Detection (VAD)', () => {
     const silentBuffer = new ArrayBuffer(32000); // 1 second of silence
 
     const context = await initWhisperVad({
-      model: vadModelPath,
-      use_gpu: false,
-      n_threads: 2
+      filePath: vadModelPath,
+      useGpu: false,
+      nThreads: 2
     });
 
     const result = await context.detectSpeechData(silentBuffer);
@@ -106,6 +106,6 @@ describe('Voice Activity Detection (VAD)', () => {
   test('should handle VAD errors gracefully', async () => {
     const invalidModelPath = 'nonexistent/vad-model.bin';
 
-    expect(initWhisperVad({ model: invalidModelPath })).rejects.toThrow()
+    expect(initWhisperVad({ filePath: invalidModelPath })).rejects.toThrow()
   })
 })

@@ -2,8 +2,8 @@ import { loadModule } from './binding';
 import type {
   WhisperContext,
   WhisperVadContext,
-  WhisperModelOptions,
-  VadModelOptions,
+  NativeContextOptions,
+  NativeVadContextOptions,
   TranscribeOptions,
   TranscribeResult,
   VadOptions,
@@ -16,8 +16,8 @@ import type {
 export type {
   WhisperContext,
   WhisperVadContext,
-  WhisperModelOptions,
-  VadModelOptions,
+  NativeContextOptions,
+  NativeVadContextOptions,
   TranscribeOptions,
   TranscribeResult,
   VadOptions,
@@ -48,7 +48,7 @@ export const loadWhisperModule = async (variant?: LibVariant): Promise<Module> =
  * @returns Promise that resolves to a WhisperContext instance
  */
 export const initWhisper = async (
-  options: WhisperModelOptions,
+  options: NativeContextOptions,
   variant?: LibVariant
 ): Promise<WhisperContext> => {
   const module = await loadWhisperModule(variant);
@@ -62,7 +62,7 @@ export const initWhisper = async (
  * @returns Promise that resolves to a WhisperVadContext instance
  */
 export const initWhisperVad = async (
-  options: VadModelOptions,
+  options: NativeVadContextOptions,
   variant?: LibVariant
 ): Promise<WhisperVadContext> => {
   const module = await loadWhisperModule(variant);
