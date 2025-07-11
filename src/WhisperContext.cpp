@@ -1,6 +1,7 @@
 #include "WhisperContext.h"
 #include "common.hpp"
 #include "whisper.h"
+#include "common-whisper.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -242,7 +243,35 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
     }
 
     auto deferred = Napi::Promise::Deferred::New(env);
-    deferred.Reject(Napi::Error::New(env, "File transcription not implemented yet").Value());
+
+    try {
+        // Load audio file
+        std::vector<float> audioData = whisper_utils::loadAudioFile(filePath);
+
+        // Create parameters
+        whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
+
+        // Create async worker - pass shared pointer to session instead of raw pointer
+        auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
+            if (cbInfo.Length() >= 2) {
+                if (!cbInfo[0].IsNull()) {
+                    deferred.Reject(cbInfo[0]);
+                } else {
+                    deferred.Resolve(cbInfo[1]);
+                }
+            }
+        });
+
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params);
+        worker->Queue();
+
+        // Don't store the worker pointer since it's managed by Node.js
+        // and will clean itself up when it completes
+
+    } catch (const std::exception& e) {
+        deferred.Reject(Napi::Error::New(env, e.what()).Value());
+    }
+
     return deferred.Promise();
 }
 

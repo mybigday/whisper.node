@@ -30,6 +30,7 @@ namespace whisper_utils {
     Napi::Object createVadResult(Napi::Env env, bool hasSpeech, const std::vector<std::pair<int64_t, int64_t>>& segments);
 
     std::vector<float> convertAudioBufferToFloat(Napi::ArrayBuffer& buffer);
+    std::vector<float> loadAudioFile(const std::string& filePath);
 }
 
 // Session management

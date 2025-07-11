@@ -43,18 +43,18 @@ const context = await initWhisper({
   n_threads: 4
 })
 
-// Transcribe multiple files with the same context
-const audioBuffer1 = fs.readFileSync('audio1.wav').buffer
-const audioBuffer2 = fs.readFileSync('audio2.wav').buffer
 
-const result1 = await context.transcribe(audioBuffer1, {
+const result1 = await context.transcribeFile('audio1.wav', {
   language: 'en',
-  temperature: 0.0
+  temperature: 0.0,
+  // ...
 })
 
-const result2 = await context.transcribe(audioBuffer2, {
+let audioBuffer // PCM 16-bit, mono, 16kHz
+const result2 = await context.transcribeData(audioBuffer, {
   language: 'en',
-  temperature: 0.0
+  temperature: 0.0,
+  // ...
 })
 
 // Always release the context when done
@@ -73,47 +73,8 @@ const vadContext = await initWhisperVad({
   n_threads: 2
 })
 
-const result = await vadContext.detectSpeech(audioBuffer)
+const result = await vadContext.detectSpeechData(audioBuffer)
 await vadContext.release()
-```
-
-### Advanced Options
-
-```js
-import { initWhisper } from '@fugood/whisper.node'
-
-const context = await initWhisper({
-  model: 'path/to/ggml-base.en.bin',
-  use_gpu: true,
-  n_threads: 4,
-  language: 'en',
-  translate: false,
-  temperature: 0.0,
-  max_tokens: 32,
-  suppress_blank: true,
-  suppress_non_speech_tokens: true,
-  token_timestamps: true
-})
-
-const result = await context.transcribe(audioBuffer, {
-  language: 'en',
-  temperature: 0.0,
-  max_len: 1,
-  token_timestamps: true,
-  prompt: 'Custom prompt for better accuracy'
-})
-
-console.log('Detailed segments with timestamps:')
-result.segments.forEach(segment => {
-  console.log(`[${segment.start}s -> ${segment.end}s]: ${segment.text}`)
-  if (segment.words) {
-    segment.words.forEach(word => {
-      console.log(`  "${word.word}" (${word.probability})`)
-    })
-  }
-})
-
-await context.release()
 ```
 
 **Note**: Audio data should be 16-bit PCM, mono, 16kHz format. The library expects ArrayBuffer containing raw audio data.

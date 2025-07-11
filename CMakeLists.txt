@@ -171,6 +171,7 @@ string(REPLACE "\"" "" NODE_ADDON_API_DIR "${NODE_ADDON_API_DIR}")
 
 # Source files
 file(GLOB_RECURSE SOURCES "src/*.cc" "src/*.cpp" "src/*.c")
+list(APPEND SOURCES "whisper.cpp/examples/common-whisper.cpp")
 
 # Create the addon
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
@@ -184,6 +185,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_JS_INC}
     ${NODE_ADDON_API_DIR}
     ${CMAKE_SOURCE_DIR}/whisper.cpp/include
+    ${CMAKE_SOURCE_DIR}/whisper.cpp/examples
     ${CMAKE_SOURCE_DIR}/src
 )
 

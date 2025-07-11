@@ -1,5 +1,6 @@
 #include "common.hpp"
 #include "whisper.h"
+#include "common-whisper.h"
 #include <iostream>
 #include <cstdarg>
 #include <string>
@@ -215,6 +216,18 @@ std::vector<float> convertAudioBufferToFloat(Napi::ArrayBuffer& buffer) {
     }
 
     return audioData;
+}
+
+std::vector<float> loadAudioFile(const std::string& filePath) {
+    std::vector<float> pcmf32;
+    std::vector<std::vector<float>> pcmf32s;
+    
+    bool success = read_audio_data(filePath, pcmf32, pcmf32s, false);
+    if (!success) {
+        throw std::runtime_error("Failed to load audio file: " + filePath);
+    }
+    
+    return pcmf32;
 }
 
 } // namespace whisper_utils

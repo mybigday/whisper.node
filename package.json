@@ -24,7 +24,7 @@
   "files": [
     "scripts/check.js",
     "src/*.{cc,c,h,hpp,cpp}",
-    "whisper.cpp/{src,include}/**/*.{h,hpp,cpp,cc,c}",
+    "whisper.cpp/{examples,src,include}/**/*.{h,hpp,cpp,cc,c}",
     "whisper.cpp/ggml/include/*.h",
     "whisper.cpp/ggml/src/ggml-cpu/**/*.{h,hpp,cpp,cc,c}",
     "lib/*.js",
