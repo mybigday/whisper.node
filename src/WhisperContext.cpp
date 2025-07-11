@@ -208,9 +208,6 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
 
     _sess = std::make_shared<WhisperSession>(modelPath, ctx);
 
-    // Build system info
-    _info = "Whisper model loaded from: " + modelPath;
-
     // Build metadata
     _meta = Napi::Object::New(env);
     _meta.Set("filePath", modelPath);
@@ -251,7 +248,6 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
     Napi::Function func = DefineClass(env, "WhisperContext", {
         StaticMethod("toggleNativeLog", &WhisperContext::ToggleNativeLog),
         StaticMethod("loadModelInfo", &WhisperContext::ModelInfo),
-        InstanceMethod("getSystemInfo", &WhisperContext::GetSystemInfo),
         InstanceMethod("getModelInfo", &WhisperContext::GetModelInfo),
         InstanceMethod("transcribeFile", &WhisperContext::TranscribeFile),
         InstanceMethod("transcribe", &WhisperContext::TranscribeFile),
@@ -262,9 +258,6 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
     exports.Set("WhisperContext", func);
 }
 
-Napi::Value WhisperContext::GetSystemInfo(const Napi::CallbackInfo& info) {
-    return Napi::String::New(info.Env(), _info);
-}
 
 Napi::Value WhisperContext::GetModelInfo(const Napi::CallbackInfo& info) {
     return _meta;
@@ -413,9 +406,6 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
     }
     _sess = std::make_shared<WhisperVadSession>(modelPath, ctx);
 
-    // Build system info
-    _info = "Whisper VAD model loaded from: " + modelPath;
-
     // Build metadata
     _meta = Napi::Object::New(env);
     _meta.Set("filePath", modelPath);
@@ -454,7 +444,6 @@ void WhisperVadContext::Init(Napi::Env env, Napi::Object& exports) {
     Napi::Function func = DefineClass(env, "WhisperVadContext", {
         StaticMethod("toggleNativeLog", &WhisperVadContext::ToggleNativeLog),
         StaticMethod("loadModelInfo", &WhisperVadContext::ModelInfo),
-        InstanceMethod("getSystemInfo", &WhisperVadContext::GetSystemInfo),
         InstanceMethod("getModelInfo", &WhisperVadContext::GetModelInfo),
         InstanceMethod("detectSpeechFile", &WhisperVadContext::DetectSpeechFile),
         InstanceMethod("detectSpeech", &WhisperVadContext::DetectSpeechFile),
@@ -463,10 +452,6 @@ void WhisperVadContext::Init(Napi::Env env, Napi::Object& exports) {
     });
 
     exports.Set("WhisperVadContext", func);
-}
-
-Napi::Value WhisperVadContext::GetSystemInfo(const Napi::CallbackInfo& info) {
-    return Napi::String::New(info.Env(), _info);
 }
 
 Napi::Value WhisperVadContext::GetModelInfo(const Napi::CallbackInfo& info) {

@@ -60,11 +60,6 @@ describe('Whisper transcription', () => {
       })
 
       expect(context).toBeDefined()
-      expect(typeof context.getSystemInfo).toBe('function')
-
-      const systemInfo = context.getSystemInfo()
-      expect(typeof systemInfo).toBe('string')
-      expect(systemInfo.length).toBeGreaterThan(0)
 
       await context.release()
     },

@@ -31,7 +31,7 @@ function loadWavFile(filePath: string) {
 describe('Voice Activity Detection (VAD)', () => {
   const vadModelPath = path.join(__dirname, '../whisper.cpp/models/ggml-silero-v5.1.2.bin');
 
-  test('should load VAD model and get system info', async () => {
+  test('should load VAD model', async () => {
 
     const context = await initWhisperVad({
       filePath: vadModelPath,
@@ -40,10 +40,6 @@ describe('Voice Activity Detection (VAD)', () => {
     });
 
     expect(context).toBeDefined();
-    expect(typeof context.getSystemInfo).toBe('function');
-
-    const systemInfo = context.getSystemInfo();
-    expect(typeof systemInfo).toBe('string');
 
     await context.release();
   }, TEST_TIMEOUT);

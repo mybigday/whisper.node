@@ -73,7 +73,6 @@ export interface WhisperContext {
     options?: TranscribeOptions,
   ): Promise<TranscribeResult>
   release(): Promise<void>
-  getSystemInfo(): string
   getModelInfo(): object
 }
 
@@ -86,7 +85,6 @@ export interface WhisperVadContext {
     options?: VadOptions,
   ): Promise<VadSegment[]>
   release(): Promise<void>
-  getSystemInfo(): string
   getModelInfo(): object
 }
 
