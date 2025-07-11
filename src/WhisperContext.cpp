@@ -24,6 +24,12 @@ protected:
             return;
         }
 
+        // Handle empty audio data gracefully
+        if (audioData_.empty()) {
+            resultText_ = "";
+            return;
+        }
+
         // Lock the session to ensure thread safety
         std::lock_guard<std::mutex> lock(session_->mtx);
         
@@ -50,6 +56,13 @@ protected:
     void OnOK() override {
         if (!session_ || !session_->isValid()) {
             Callback().Call({Napi::Error::New(Env(), "Context was destroyed").Value(), Env().Null()});
+            return;
+        }
+        
+        // Handle empty audio data case
+        if (audioData_.empty()) {
+            auto result = whisper_utils::createTranscribeResult(Env(), nullptr, resultText_, false);
+            Callback().Call({Env().Null(), result});
             return;
         }
         
