@@ -88,13 +88,9 @@ export interface VadOptions {
   duration_ms?: number
 }
 
-export interface VadResult {
-  speech_timestamps: Array<{
-    start: number
-    end: number
-  }>
-  is_speech: boolean
-  speech_probability: number
+export interface VadSegment {
+  t0: number
+  t1: number
 }
 
 export interface WhisperContext {
@@ -118,12 +114,12 @@ export interface WhisperContext {
 
 export interface WhisperVadContext {
   new (options: VadModelOptions): WhisperVadContext
-  detectSpeech(filePath: string, options?: VadOptions): Promise<VadResult>
-  detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadResult>
+  detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
+  detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechData(
     audioData: ArrayBuffer,
     options?: VadOptions,
-  ): Promise<VadResult>
+  ): Promise<VadSegment[]>
   release(): Promise<void>
   getSystemInfo(): string
   getModelInfo(): object

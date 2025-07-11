@@ -62,18 +62,21 @@ describe('Voice Activity Detection (VAD)', () => {
     });
 
     expect(result).toBeDefined();
-    expect(typeof result.is_speech).toBe('boolean');
-    expect(typeof result.speech_probability).toBe('number');
-    expect(Array.isArray(result.speech_timestamps)).toBe(true);
+    expect(Array.isArray(result)).toBe(true);
 
-    // JFK sample should contain speech
-    expect(result.is_speech).toBe(true);
-    expect(result.speech_probability).toBeGreaterThan(0);
+    // JFK sample should contain speech segments
+    expect(result.length).toBeGreaterThan(0);
+
+    // Each segment should have t0 and t1 properties
+    if (result.length > 0) {
+      expect(typeof result[0].t0).toBe('number');
+      expect(typeof result[0].t1).toBe('number');
+      expect(result[0].t1).toBeGreaterThan(result[0].t0);
+    }
 
     console.log('VAD result:', {
-      is_speech: result.is_speech,
-      speech_probability: result.speech_probability,
-      segments: result.speech_timestamps.length
+      segments_count: result.length,
+      segments: result.map(seg => ({ t0: seg.t0, t1: seg.t1 }))
     });
 
     await context.release();
@@ -92,13 +95,10 @@ describe('Voice Activity Detection (VAD)', () => {
     const result = await context.detectSpeechData(silentBuffer);
 
     expect(result).toBeDefined();
-    expect(typeof result.is_speech).toBe('boolean');
-    expect(typeof result.speech_probability).toBe('number');
-    expect(Array.isArray(result.speech_timestamps)).toBe(true);
+    expect(Array.isArray(result)).toBe(true);
 
-    // Silent audio should not contain speech
-    expect(result.speech_timestamps).toHaveLength(0);
-    expect(result.speech_probability).toBeLessThan(0.5);
+    // Silent audio should not contain speech segments
+    expect(result).toHaveLength(0);
 
     await context.release();
   }, TEST_TIMEOUT);

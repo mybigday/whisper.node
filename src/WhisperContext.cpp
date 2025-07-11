@@ -149,7 +149,17 @@ protected:
     }
 
     void OnOK() override {
-        auto result = whisper_utils::createVadResult(Env(), hasSpeech_, speechProbability_, segments_);
+        Napi::Env env = Env();
+        Napi::Array result = Napi::Array::New(env);
+        
+        // Create VadSegment[] - array of objects with t0 and t1 properties
+        for (size_t i = 0; i < segments_.size(); i++) {
+            Napi::Object segment = Napi::Object::New(env);
+            segment.Set("t0", segments_[i].first);
+            segment.Set("t1", segments_[i].second);
+            result.Set(i, segment);
+        }
+        
         Callback().Call({Env().Null(), result});
     }
 
@@ -163,7 +173,7 @@ private:
     whisper_vad_params vadParams_;
     bool hasSpeech_ = false;
     float speechProbability_ = 0.0f;
-    std::vector<std::pair<int64_t, int64_t>> segments_;
+    std::vector<std::pair<float, float>> segments_;  // Changed to float for time values
 };
 
 // WhisperContext implementation

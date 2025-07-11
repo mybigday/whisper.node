@@ -7,7 +7,7 @@ import type {
   TranscribeOptions,
   TranscribeResult,
   VadOptions,
-  VadResult,
+  VadSegment,
   LibVariant,
   Module
 } from './binding';
@@ -21,7 +21,7 @@ export type {
   TranscribeOptions,
   TranscribeResult,
   VadOptions,
-  VadResult,
+  VadSegment,
   LibVariant
 };
 
