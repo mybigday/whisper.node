@@ -1,0 +1,43 @@
+name: Release
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+jobs:
+  release_native:
+    uses: ./.github/workflows/build-release.yml
+    with:
+      publish: YES
+    secrets: inherit
+  publish:
+    permissions:
+      contents: write
+      pull-requests: read
+    needs: release_native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: gguf models cache
+        uses: actions/cache@v4
+        with:
+          path: test/*.gguf
+          key: ${{ runner.os }}-gguf-models-${{ hashFiles('test/*.gguf') }}
+      - name: Download bundled files
+        uses: actions/download-artifact@v4
+        with:
+          path: bin
+          pattern: bin-*
+          merge-multiple: true
+      - run: npm install --omit=optional
+      - run: npm run build
+      - name: Publish to NPM
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm run publish-if-need

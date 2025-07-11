@@ -1,0 +1,11 @@
+*.js
+.DS_Store
+*.log
+node_modules/
+build/
+*.bin
+coverage/
+tmp.sess
+/externals/
+*.node
+package-lock.json

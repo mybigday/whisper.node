@@ -1,0 +1,142 @@
+# whisper.node
+
+[![CI](https://github.com/mybigday/whisper.node/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mybigday/whisper.node/actions/workflows/ci.yml)
+[![NPM Version](https://img.shields.io/npm/v/%40fugood%2Fwhisper.node)](https://www.npmjs.com/package/@fugood/whisper.node)
+![NPM Downloads](https://img.shields.io/npm/dw/%40fugood%2Fwhisper.node)
+
+An another Node binding of [whisper.cpp](https://github.com/ggml-org/whisper.cpp) to make same API with [whisper.rn](https://github.com/mybigday/whisper.rn) as much as possible.
+
+- [whisper.cpp](https://github.com/ggerganov/whisper.cpp): Automatic speech recognition with multi-platform support
+- [whisper.rn](https://github.com/mybigday/whisper.rn): React Native binding of whisper.cpp
+
+## Platform Support
+
+- macOS
+  - arm64: CPU and Metal GPU acceleration
+  - x86_64: CPU only
+- Windows (x86_64 and arm64)
+  - CPU
+  - GPU acceleration via Vulkan
+  - GPU acceleration via CUDA (x86_64)
+- Linux (x86_64 and arm64)
+  - CPU
+  - GPU acceleration via Vulkan
+  - GPU acceleration via CUDA
+
+## Installation
+
+```sh
+npm install @fugood/whisper.node
+```
+
+## Usage
+
+### Basic Transcription
+
+```js
+import { initWhisper } from '@fugood/whisper.node'
+
+// Create a context for reuse (more efficient for multiple transcriptions)
+const context = await initWhisper({
+  model: 'path/to/ggml-base.en.bin',
+  use_gpu: true,
+  n_threads: 4
+})
+
+// Transcribe multiple files with the same context
+const audioBuffer1 = fs.readFileSync('audio1.wav').buffer
+const audioBuffer2 = fs.readFileSync('audio2.wav').buffer
+
+const result1 = await context.transcribe(audioBuffer1, {
+  language: 'en',
+  temperature: 0.0
+})
+
+const result2 = await context.transcribe(audioBuffer2, {
+  language: 'en',
+  temperature: 0.0
+})
+
+// Always release the context when done
+await context.release()
+```
+
+### Voice Activity Detection (VAD)
+
+```js
+import { initWhisperVad } from '@fugood/whisper.node'
+
+// Context-based VAD (for multiple detections)
+const vadContext = await initWhisperVad({
+  model: 'path/to/ggml-vad.bin',
+  use_gpu: true,
+  n_threads: 2
+})
+
+const result = await vadContext.detectSpeech(audioBuffer)
+await vadContext.release()
+```
+
+### Advanced Options
+
+```js
+import { initWhisper } from '@fugood/whisper.node'
+
+const context = await initWhisper({
+  model: 'path/to/ggml-base.en.bin',
+  use_gpu: true,
+  n_threads: 4,
+  language: 'en',
+  translate: false,
+  temperature: 0.0,
+  max_tokens: 32,
+  suppress_blank: true,
+  suppress_non_speech_tokens: true,
+  token_timestamps: true
+})
+
+const result = await context.transcribe(audioBuffer, {
+  language: 'en',
+  temperature: 0.0,
+  max_len: 1,
+  token_timestamps: true,
+  prompt: 'Custom prompt for better accuracy'
+})
+
+console.log('Detailed segments with timestamps:')
+result.segments.forEach(segment => {
+  console.log(`[${segment.start}s -> ${segment.end}s]: ${segment.text}`)
+  if (segment.words) {
+    segment.words.forEach(word => {
+      console.log(`  "${word.word}" (${word.probability})`)
+    })
+  }
+})
+
+await context.release()
+```
+
+**Note**: Audio data should be 16-bit PCM, mono, 16kHz format. The library expects ArrayBuffer containing raw audio data.
+
+## Lib Variants
+
+- [x] `default`: General usage, not support GPU except macOS (Metal)
+- [x] `vulkan`: Support GPU Vulkan (Windows/Linux), but some scenario might unstable
+- [x] `cuda`: Support GPU CUDA (Windows/Linux), but only for limited capability
+  > Linux: (x86_64: 8.9, arm64: 8.7)
+  > Windows: x86_64 - 12.0
+
+## License
+
+MIT
+
+---
+
+<p align="center">
+  <a href="https://bricks.tools">
+    <img width="90px" src="https://avatars.githubusercontent.com/u/17320237?s=200&v=4">
+  </a>
+  <p align="center">
+    Built and maintained by <a href="https://bricks.tools">BRICKS</a>.
+  </p>
+</p>
