@@ -82,7 +82,7 @@ describe('Audio utilities', () => {
 describe('Whisper transcription', () => {
   const modelPath = path.join(
     __dirname,
-    '../whisper.cpp/models/ggml-base.bin',
+    '../whisper.cpp/models/ggml-tiny.en.bin',
   )
 
   test(
@@ -174,7 +174,7 @@ describe('Whisper transcription', () => {
   test('should handle invalid audio data', async () => {
     const modelPath = path.join(
       __dirname,
-      '../whisper.cpp/models/ggml-base.bin',
+      '../whisper.cpp/models/ggml-tiny.en.bin',
     )
 
     const invalidBuffer = new ArrayBuffer(0) // Empty buffer
