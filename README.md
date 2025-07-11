@@ -36,7 +36,6 @@ npm install @fugood/whisper.node
 ```js
 import { initWhisper } from '@fugood/whisper.node'
 
-// Create a context for reuse (more efficient for multiple transcriptions)
 const context = await initWhisper({
   model: 'path/to/ggml-base.en.bin',
   use_gpu: true,
@@ -73,7 +72,9 @@ const vadContext = await initWhisperVad({
   n_threads: 2
 })
 
-const result = await vadContext.detectSpeechData(audioBuffer)
+const result = await vadContext.detectSpeechFile('audio.wav')
+
+const result2 = await vadContext.detectSpeechData(audioBuffer)
 await vadContext.release()
 ```
 

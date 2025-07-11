@@ -26,8 +26,9 @@ namespace whisper_utils {
     bool getBool(const Napi::Value& value, bool defaultValue = false);
 
     whisper_full_params createFullParamsFromOptions(const Napi::Object& options);
+    whisper_vad_params createVadParamsFromOptions(const Napi::Object& options);
     Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted = false);
-    Napi::Object createVadResult(Napi::Env env, bool hasSpeech, const std::vector<std::pair<int64_t, int64_t>>& segments);
+    Napi::Object createVadResult(Napi::Env env, bool hasSpeech, float speechProbability, const std::vector<std::pair<int64_t, int64_t>>& segments);
 
     std::vector<float> convertAudioBufferToFloat(Napi::ArrayBuffer& buffer);
     std::vector<float> loadAudioFile(const std::string& filePath);

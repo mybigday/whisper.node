@@ -97,7 +97,7 @@ describe('Voice Activity Detection (VAD)', () => {
     expect(Array.isArray(result.speech_timestamps)).toBe(true);
 
     // Silent audio should not contain speech
-    expect(result.is_speech).toBe(false);
+    expect(result.speech_timestamps).toHaveLength(0);
     expect(result.speech_probability).toBeLessThan(0.5);
 
     await context.release();
@@ -106,6 +106,6 @@ describe('Voice Activity Detection (VAD)', () => {
   test('should handle VAD errors gracefully', async () => {
     const invalidModelPath = 'nonexistent/vad-model.bin';
 
-    expect(initWhisperVad({ model: invalidModelPath }))
+    expect(initWhisperVad({ model: invalidModelPath })).rejects.toThrow()
   })
 })

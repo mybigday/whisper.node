@@ -85,37 +85,71 @@ public:
     WhisperVadWorker(
         const Napi::Function& callback,
         WhisperVadSessionPtr session,
-        const std::vector<float>& audioData
-    ) : AsyncWorker(callback), session_(session), audioData_(audioData) {}
+        const std::vector<float>& audioData,
+        const whisper_vad_params& vadParams
+    ) : AsyncWorker(callback), session_(session), audioData_(audioData), vadParams_(vadParams) {}
 
 protected:
     void Execute() override {
-        // Perform simple energy-based VAD
-        // This is a basic implementation that doesn't require a real VAD model
-        hasSpeech_ = false;
-        float energy = 0.0f;
-        
+        if (!session_ || !session_->isValid()) {
+            SetError("Invalid VAD context");
+            return;
+        }
+
         if (audioData_.empty()) {
             SetError("Empty audio data");
             return;
         }
-        
-        for (float sample : audioData_) {
-            energy += sample * sample;
-        }
-        energy /= audioData_.size();
 
-        // Simple energy threshold for speech detection
-        const float SPEECH_THRESHOLD = 0.001f;
-        if (energy > SPEECH_THRESHOLD) {
-            hasSpeech_ = true;
-            // Create a single segment covering the entire audio
-            segments_.push_back({0, static_cast<int64_t>(audioData_.size() * 1000 / 16000)}); // Convert to ms
+        // Lock the session to ensure thread safety
+        std::lock_guard<std::mutex> lock(session_->mtx);
+        
+        if (!session_->ctx) {
+            SetError("VAD context was destroyed");
+            return;
+        }
+
+        // Use proper VAD detection
+        hasSpeech_ = whisper_vad_detect_speech(session_->ctx, audioData_.data(), audioData_.size());
+
+        // Calculate speech probability from VAD probabilities
+        int n_probs = whisper_vad_n_probs(session_->ctx);
+        float* probs = whisper_vad_probs(session_->ctx);
+        
+        if (n_probs > 0 && probs) {
+            // Calculate average probability across all frames
+            float prob_sum = 0.0f;
+            for (int i = 0; i < n_probs; i++) {
+                prob_sum += probs[i];
+            }
+            speechProbability_ = prob_sum / n_probs;
+        } else {
+            // Fallback: use simple binary probability based on detection
+            speechProbability_ = hasSpeech_ ? 0.8f : 0.1f;
+        }
+
+        if (hasSpeech_) {
+            // Get VAD segments using provided parameters
+            whisper_vad_segments* segments = whisper_vad_segments_from_samples(
+                session_->ctx, vadParams_, audioData_.data(), audioData_.size());
+            
+            if (segments) {
+                int n_segments = whisper_vad_segments_n_segments(segments);
+                
+                for (int i = 0; i < n_segments; i++) {
+                    float t0 = whisper_vad_segments_get_segment_t0(segments, i);
+                    float t1 = whisper_vad_segments_get_segment_t1(segments, i);
+                    
+                    segments_.push_back({t0, t1});
+                }
+                
+                whisper_vad_free_segments(segments);
+            }
         }
     }
 
     void OnOK() override {
-        auto result = whisper_utils::createVadResult(Env(), hasSpeech_, segments_);
+        auto result = whisper_utils::createVadResult(Env(), hasSpeech_, speechProbability_, segments_);
         Callback().Call({Env().Null(), result});
     }
 
@@ -126,7 +160,9 @@ protected:
 private:
     WhisperVadSessionPtr session_;  // Hold shared pointer instead of raw pointer
     std::vector<float> audioData_;
+    whisper_vad_params vadParams_;
     bool hasSpeech_ = false;
+    float speechProbability_ = 0.0f;
     std::vector<std::pair<int64_t, int64_t>> segments_;
 };
 
@@ -356,11 +392,12 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
         return;
     }
 
-    // For now, create a dummy VAD context - in a real implementation,
-    // you would initialize with proper VAD model
-    // Since VAD model loading is not implemented yet, we'll create a placeholder
-    // that enables basic energy-based VAD functionality
-    whisper_vad_context* ctx = reinterpret_cast<whisper_vad_context*>(0x1); // Non-null placeholder
+    // Initialize VAD context with proper parameters
+    whisper_vad_context_params vparams = whisper_vad_default_context_params();
+    vparams.use_gpu = useGpu;
+    vparams.n_threads = nThreads;
+
+    whisper_vad_context* ctx = whisper_vad_init_from_file_with_params(modelPath.c_str(), vparams);
     if (!ctx) {
         Napi::Error::New(env, "Failed to initialize whisper vad context").ThrowAsJavaScriptException();
         return;
@@ -444,6 +481,9 @@ Napi::Value WhisperVadContext::DetectSpeechFile(const Napi::CallbackInfo& info) 
         // Load audio file
         std::vector<float> audioData = whisper_utils::loadAudioFile(filePath);
 
+        // Create VAD parameters
+        whisper_vad_params vadParams = whisper_utils::createVadParamsFromOptions(options);
+
         // Create async worker - pass shared pointer to session
         auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
             if (cbInfo.Length() >= 2) {
@@ -455,7 +495,7 @@ Napi::Value WhisperVadContext::DetectSpeechFile(const Napi::CallbackInfo& info) 
             }
         });
 
-        auto worker = new WhisperVadWorker(callback, _sess, audioData);
+        auto worker = new WhisperVadWorker(callback, _sess, audioData, vadParams);
         worker->Queue();
 
     } catch (const std::exception& e) {
@@ -483,6 +523,9 @@ Napi::Value WhisperVadContext::DetectSpeechData(const Napi::CallbackInfo& info) 
         // Convert ArrayBuffer to float array
         std::vector<float> audioData = whisper_utils::convertAudioBufferToFloat(audioBuffer);
 
+        // Create VAD parameters
+        whisper_vad_params vadParams = whisper_utils::createVadParamsFromOptions(options);
+
         // Create async worker - pass shared pointer to session
         auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
             if (cbInfo.Length() >= 2) {
@@ -494,7 +537,7 @@ Napi::Value WhisperVadContext::DetectSpeechData(const Napi::CallbackInfo& info) 
             }
         });
 
-        auto worker = new WhisperVadWorker(callback, _sess, audioData);
+        auto worker = new WhisperVadWorker(callback, _sess, audioData, vadParams);
         worker->Queue();
 
     } catch (const std::exception& e) {

@@ -59,8 +59,7 @@ WhisperVadSession::WhisperVadSession(const std::string& modelPath, whisper_vad_c
 }
 
 WhisperVadSession::~WhisperVadSession() {
-    if (ctx && ctx != reinterpret_cast<whisper_vad_context*>(0x1)) {
-        // Only free real VAD contexts, not our placeholder
+    if (ctx) {
         whisper_vad_free(ctx);
         ctx = nullptr;
     }
@@ -155,6 +154,32 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
     return params;
 }
 
+whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
+    whisper_vad_params params = whisper_vad_default_params();
+
+    auto propNames = options.GetPropertyNames();
+    for (uint32_t i = 0; i < propNames.Length(); i++) {
+        auto key = propNames.Get(i).As<Napi::String>().Utf8Value();
+        auto value = options.Get(key);
+
+        if (key == "threshold" && value.IsNumber()) {
+            params.threshold = value.As<Napi::Number>().FloatValue();
+        } else if (key == "min_speech_duration_ms" && value.IsNumber()) {
+            params.min_speech_duration_ms = value.As<Napi::Number>().Int32Value();
+        } else if (key == "min_silence_duration_ms" && value.IsNumber()) {
+            params.min_silence_duration_ms = value.As<Napi::Number>().Int32Value();
+        } else if (key == "max_speech_duration_s" && value.IsNumber()) {
+            params.max_speech_duration_s = value.As<Napi::Number>().FloatValue();
+        } else if (key == "speech_pad_ms" && value.IsNumber()) {
+            params.speech_pad_ms = value.As<Napi::Number>().Int32Value();
+        } else if (key == "samples_overlap" && value.IsNumber()) {
+            params.samples_overlap = value.As<Napi::Number>().FloatValue();
+        }
+    }
+
+    return params;
+}
+
 Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted) {
     auto result = Napi::Object::New(env);
     result.Set("result", text);
@@ -177,12 +202,9 @@ Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const s
     return result;
 }
 
-Napi::Object createVadResult(Napi::Env env, bool hasSpeech, const std::vector<std::pair<int64_t, int64_t>>& segments) {
+Napi::Object createVadResult(Napi::Env env, bool hasSpeech, float speechProbability, const std::vector<std::pair<int64_t, int64_t>>& segments) {
     auto result = Napi::Object::New(env);
     result.Set("is_speech", hasSpeech);
-    
-    // Calculate speech probability based on whether speech was detected
-    float speechProbability = hasSpeech ? 0.8f : 0.1f; // Simple heuristic
     result.Set("speech_probability", speechProbability);
 
     auto speechTimestamps = Napi::Array::New(env);
