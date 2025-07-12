@@ -39,8 +39,13 @@ let logEnabled = false
 
 const refreshNativeLogSetup = () => {
   if (moduleCache) {
-    moduleCache.WhisperContext.toggleNativeLog(logEnabled, logCallback)
-    moduleCache.WhisperVadContext.toggleNativeLog(logEnabled, logCallback)
+    if (logEnabled) {
+      moduleCache.WhisperContext.toggleNativeLog(logEnabled, logCallback)
+      moduleCache.WhisperVadContext.toggleNativeLog(logEnabled, logCallback)
+    } else {
+      moduleCache.WhisperContext.toggleNativeLog(false)
+      moduleCache.WhisperVadContext.toggleNativeLog(false)
+    }
   }
 }
 
@@ -68,7 +73,8 @@ export function addNativeLogListener(
 export const loadWhisperModule = async (variant?: LibVariant): Promise<Module> => {
   if (!moduleCache) {
     moduleCache = await loadModule(variant);
-    refreshNativeLogSetup();
+    // Don't automatically setup logging on module load
+    // Users should explicitly call toggleNativeLog(true) if they want logging
   }
   return moduleCache;
 };

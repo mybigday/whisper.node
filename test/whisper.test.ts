@@ -76,27 +76,29 @@ describe('Whisper transcription', () => {
       logs.push({ level, text })
     })
 
-    // Enable native logging
-    await toggleNativeLog(true)
+    try {
+      // Enable native logging
+      await toggleNativeLog(true)
 
-    // Load a model to trigger some logging
-    const context = await initWhisper({
-      filePath: modelPath,
-      useGpu: false,
-    })
+      // Load a model to trigger some logging
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
 
-    // Wait a bit for any async logging
-    await new Promise(resolve => setTimeout(resolve, 100))
+      // Wait a bit for any async logging
+      await new Promise(resolve => setTimeout(resolve, 100))
 
-    // Disable logging
-    await toggleNativeLog(false)
+      // Clean up context
+      await context.release()
 
-    // Clean up
-    remove()
-    await context.release()
-
-    // We should have received some logs (though the exact content depends on the whisper implementation)
-    expect(logs.length).toBeGreaterThanOrEqual(0)
+      // We should have received some logs (though the exact content depends on the whisper implementation)
+      expect(logs.length).toBeGreaterThanOrEqual(0)
+    } finally {
+      // Always disable logging and remove listener, even if test fails
+      await toggleNativeLog(false)
+      remove()
+    }
   })
 
   test(
@@ -109,10 +111,12 @@ describe('Whisper transcription', () => {
         useGpu: false,
       })
 
-      const result = await context.transcribeData(audioBuffer, {
+      const { promise } = context.transcribeData(audioBuffer, {
         language: 'en',
         temperature: 0.0,
       })
+
+      const result = await promise
 
       expect(result).toBeDefined()
       expect(typeof result.result).toBe('string')
@@ -140,10 +144,12 @@ describe('Whisper transcription', () => {
 
       const audioBuffer = createTestAudioBuffer(2000, 440)
 
-      const result = await context.transcribeData(audioBuffer, {
+      const { promise } = context.transcribeData(audioBuffer, {
         language: 'en',
         temperature: 0.0,
       })
+
+      const result = await promise
 
       expect(result).toBeDefined()
       expect(typeof result.result).toBe('string')
@@ -175,7 +181,10 @@ describe('Whisper transcription', () => {
       useGpu: false,
     })
 
-    expect(await context.transcribeData(invalidBuffer)).toEqual({
+    const { promise } = context.transcribeData(invalidBuffer)
+    const result = await promise
+
+    expect(result).toEqual({
       isAborted: false,
       result: '',
       segments: [],
@@ -191,4 +200,40 @@ describe('Whisper transcription', () => {
       initWhisper({ filePath: invalidModelPath }),
     ).rejects.toThrow()
   })
+
+  test(
+    'should return correct API structure with stop and promise',
+    async () => {
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      const audioBuffer = createTestAudioBuffer(100, 440) // Very short audio
+
+      const result = context.transcribeData(audioBuffer, {
+        language: 'en',
+        temperature: 0.0,
+      })
+
+      // Verify the API structure matches whisper.rn standard
+      expect(result).toBeDefined()
+      expect(typeof result).toBe('object')
+      expect(typeof result.stop).toBe('function')
+      expect(typeof result.promise).toBe('object')
+      expect(typeof result.promise.then).toBe('function')
+      expect(result.promise.constructor.name).toBe('Promise')
+
+      // Wait for transcription to complete
+      const transcriptionResult = await result.promise
+
+      expect(transcriptionResult).toBeDefined()
+      expect(typeof transcriptionResult.result).toBe('string')
+      expect(Array.isArray(transcriptionResult.segments)).toBe(true)
+      expect(typeof transcriptionResult.isAborted).toBe('boolean')
+
+      await context.release()
+    },
+    TEST_TIMEOUT,
+  )
 })

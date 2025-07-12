@@ -15,13 +15,20 @@ public:
         const Napi::Function& callback,
         WhisperSessionPtr session,
         const std::vector<float>& audioData,
-        const whisper_full_params& params
-    ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params) {}
+        const whisper_full_params& params,
+        std::shared_ptr<std::atomic<bool>> cancelFlag
+    ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), cancelFlag_(cancelFlag) {}
 
 protected:
     void Execute() override {
         if (!session_ || !session_->isValid()) {
             SetError("Invalid whisper context");
+            return;
+        }
+
+        // Check if cancelled before starting
+        if (cancelFlag_ && cancelFlag_->load()) {
+            SetError("Transcription cancelled");
             return;
         }
 
@@ -39,7 +46,20 @@ protected:
             return;
         }
 
+        // Check if cancelled before processing
+        if (cancelFlag_ && cancelFlag_->load()) {
+            SetError("Transcription cancelled");
+            return;
+        }
+
         int result = whisper_full(session_->ctx, params_, audioData_.data(), audioData_.size());
+        
+        // Check if cancelled after processing
+        if (cancelFlag_ && cancelFlag_->load()) {
+            SetError("Transcription cancelled");
+            return;
+        }
+        
         if (result != 0) {
             SetError("Transcription failed");
             return;
@@ -60,6 +80,12 @@ protected:
             return;
         }
         
+        // Check if cancelled
+        if (cancelFlag_ && cancelFlag_->load()) {
+            Callback().Call({Napi::Error::New(Env(), "Transcription cancelled").Value(), Env().Null()});
+            return;
+        }
+        
         // Handle empty audio data case
         if (audioData_.empty()) {
             auto result = whisper_utils::createTranscribeResult(Env(), nullptr, resultText_, false);
@@ -68,7 +94,8 @@ protected:
         }
         
         std::lock_guard<std::mutex> lock(session_->mtx);
-        auto result = whisper_utils::createTranscribeResult(Env(), session_->ctx, resultText_, false);
+        bool isAborted = cancelFlag_ && cancelFlag_->load();
+        auto result = whisper_utils::createTranscribeResult(Env(), session_->ctx, resultText_, isAborted);
         Callback().Call({Env().Null(), result});
     }
 
@@ -77,6 +104,7 @@ private:
     std::vector<float> audioData_;
     whisper_full_params params_;
     std::string resultText_;
+    std::shared_ptr<std::atomic<bool>> cancelFlag_;
 };
 
 // Helper class for async VAD
@@ -220,6 +248,25 @@ WhisperContext::~WhisperContext() {
     // The worker will clean itself up when it completes
 }
 
+// Job tracking methods
+int WhisperContext::registerJob(std::shared_ptr<std::atomic<bool>> cancelFlag) {
+    std::lock_guard<std::mutex> lock(_cancelMutex);
+    int jobId = _nextJobId++;
+    _cancelFlags[jobId] = cancelFlag;
+    return jobId;
+}
+
+void WhisperContext::unregisterJob(int jobId) {
+    std::lock_guard<std::mutex> lock(_cancelMutex);
+    _cancelFlags.erase(jobId);
+}
+
+bool WhisperContext::isJobCancelled(int jobId) {
+    std::lock_guard<std::mutex> lock(_cancelMutex);
+    auto it = _cancelFlags.find(jobId);
+    return it != _cancelFlags.end() && it->second->load();
+}
+
 // Static JavaScript callback function for logging
 static Napi::ThreadSafeFunction g_js_log_callback;
 
@@ -231,6 +278,14 @@ void whisper_log_callback_js(const char* level, const char* text) {
             std::string text_str(text);
             jsCallback.Call({Napi::String::New(env, level_str), Napi::String::New(env, text_str)});
         });
+    }
+}
+
+// Function to clean up JavaScript logging callback
+void cleanup_js_log_callback() {
+    if (g_js_log_callback) {
+        g_js_log_callback.Release();
+        g_js_log_callback = nullptr;
     }
 }
 
@@ -257,9 +312,7 @@ void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
         // Disable logging
         g_log_enabled = false;
         g_log_callback = nullptr;
-        if (g_js_log_callback) {
-            g_js_log_callback.Release();
-        }
+        cleanup_js_log_callback();  // Immediately clean up JavaScript callback
     }
 }
 
@@ -288,6 +341,7 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("transcribeFile", &WhisperContext::TranscribeFile),
         InstanceMethod("transcribe", &WhisperContext::TranscribeFile),
         InstanceMethod("transcribeData", &WhisperContext::TranscribeData),
+        InstanceMethod("abortTranscribe", &WhisperContext::AbortTranscribe),
         InstanceMethod("release", &WhisperContext::Release),
     });
 
@@ -316,6 +370,10 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
         return env.Null();
     }
 
+    // Create cancellation flag
+    auto cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    int jobId = registerJob(cancelFlag);
+
     auto deferred = Napi::Promise::Deferred::New(env);
 
     try {
@@ -325,8 +383,11 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
         // Create parameters
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
 
-        // Create async worker - pass shared pointer to session instead of raw pointer
-        auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
+        // Create async worker with cancellation support
+        auto callback = Napi::Function::New(env, [deferred, this, jobId](const Napi::CallbackInfo& cbInfo) {
+            // Clean up job tracking
+            this->unregisterJob(jobId);
+            
             if (cbInfo.Length() >= 2) {
                 if (!cbInfo[0].IsNull()) {
                     deferred.Reject(cbInfo[0]);
@@ -336,17 +397,39 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, cancelFlag);
         worker->Queue();
 
-        // Don't store the worker pointer since it's managed by Node.js
-        // and will clean itself up when it completes
-
     } catch (const std::exception& e) {
+        unregisterJob(jobId);
         deferred.Reject(Napi::Error::New(env, e.what()).Value());
     }
 
-    return deferred.Promise();
+    // Create the return object with stop and promise
+    auto result = Napi::Object::New(env);
+    
+    // Create stop function
+    auto stopFunction = Napi::Function::New(env, [this, jobId](const Napi::CallbackInfo& stopInfo) {
+        Napi::Env env = stopInfo.Env();
+        
+        // Cancel the job directly
+        {
+            std::lock_guard<std::mutex> lock(this->_cancelMutex);
+            auto it = this->_cancelFlags.find(jobId);
+            if (it != this->_cancelFlags.end()) {
+                it->second->store(true);
+            }
+        }
+        
+        auto deferred = Napi::Promise::Deferred::New(env);
+        deferred.Resolve(env.Undefined());
+        return deferred.Promise();
+    });
+    
+    result.Set("stop", stopFunction);
+    result.Set("promise", deferred.Promise());
+
+    return result;
 }
 
 Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
@@ -366,6 +449,10 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
         return env.Null();
     }
 
+    // Create cancellation flag
+    auto cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    int jobId = registerJob(cancelFlag);
+
     auto deferred = Napi::Promise::Deferred::New(env);
 
     try {
@@ -375,8 +462,11 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
         // Create parameters
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
 
-        // Create async worker - pass shared pointer to session instead of raw pointer
-        auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
+        // Create async worker with cancellation support
+        auto callback = Napi::Function::New(env, [deferred, this, jobId](const Napi::CallbackInfo& cbInfo) {
+            // Clean up job tracking
+            this->unregisterJob(jobId);
+            
             if (cbInfo.Length() >= 2) {
                 if (!cbInfo[0].IsNull()) {
                     deferred.Reject(cbInfo[0]);
@@ -386,16 +476,61 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, cancelFlag);
         worker->Queue();
 
-        // Don't store the worker pointer since it's managed by Node.js
-        // and will clean itself up when it completes
-
     } catch (const std::exception& e) {
+        unregisterJob(jobId);
         deferred.Reject(Napi::Error::New(env, e.what()).Value());
     }
 
+    // Create the return object with stop and promise
+    auto result = Napi::Object::New(env);
+    
+    // Create stop function
+    auto stopFunction = Napi::Function::New(env, [this, jobId](const Napi::CallbackInfo& stopInfo) {
+        Napi::Env env = stopInfo.Env();
+        
+        // Cancel the job directly
+        {
+            std::lock_guard<std::mutex> lock(this->_cancelMutex);
+            auto it = this->_cancelFlags.find(jobId);
+            if (it != this->_cancelFlags.end()) {
+                it->second->store(true);
+            }
+        }
+        
+        auto deferred = Napi::Promise::Deferred::New(env);
+        deferred.Resolve(env.Undefined());
+        return deferred.Promise();
+    });
+    
+    result.Set("stop", stopFunction);
+    result.Set("promise", deferred.Promise());
+
+    return result;
+}
+
+Napi::Value WhisperContext::AbortTranscribe(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        Napi::TypeError::New(env, "Expected job ID").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    
+    int jobId = info[0].As<Napi::Number>().Int32Value();
+    
+    {
+        std::lock_guard<std::mutex> lock(_cancelMutex);
+        auto it = _cancelFlags.find(jobId);
+        if (it != _cancelFlags.end()) {
+            it->second->store(true);
+        }
+    }
+    
+    auto deferred = Napi::Promise::Deferred::New(env);
+    deferred.Resolve(env.Undefined());
     return deferred.Promise();
 }
 
@@ -403,8 +538,16 @@ Napi::Value WhisperContext::Release(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     auto deferred = Napi::Promise::Deferred::New(env);
 
+    // Cancel all running jobs
+    {
+        std::lock_guard<std::mutex> lock(_cancelMutex);
+        for (auto& [jobId, cancelFlag] : _cancelFlags) {
+            cancelFlag->store(true);
+        }
+        _cancelFlags.clear();
+    }
+
     // The shared_ptr will ensure the context stays alive until any running worker finishes
-    
     _sess.reset();
     deferred.Resolve(env.Undefined());
 
@@ -475,9 +618,7 @@ void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
         // Disable logging
         g_log_enabled = false;
         g_log_callback = nullptr;
-        if (g_js_log_callback) {
-            g_js_log_callback.Release();
-        }
+        cleanup_js_log_callback();  // Immediately clean up JavaScript callback
     }
 }
 

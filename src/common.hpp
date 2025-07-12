@@ -75,3 +75,4 @@ extern bool g_log_enabled;
 void whisper_log_callback_default(const char* level, const char* text);
 void setup_logging();
 void cleanup_logging();
+void cleanup_js_log_callback();  // Cleanup JavaScript logging callback

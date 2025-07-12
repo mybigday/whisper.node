@@ -1,6 +1,8 @@
 #pragma once
 
 #include "common.hpp"
+#include <atomic>
+#include <unordered_map>
 
 class WhisperContext : public Napi::ObjectWrap<WhisperContext> {
 public:
@@ -18,12 +20,24 @@ private:
     Napi::Value GetModelInfo(const Napi::CallbackInfo& info);
     Napi::Value TranscribeFile(const Napi::CallbackInfo& info);
     Napi::Value TranscribeData(const Napi::CallbackInfo& info);
+    Napi::Value AbortTranscribe(const Napi::CallbackInfo& info);
     Napi::Value Release(const Napi::CallbackInfo& info);
 
     // Internal data
     std::string _info;
     Napi::Object _meta;
     WhisperSessionPtr _sess = nullptr;
+    
+    // Job tracking for cancellation
+    std::atomic<int> _nextJobId{1};
+    std::unordered_map<int, std::shared_ptr<std::atomic<bool>>> _cancelFlags;
+    std::mutex _cancelMutex;
+
+public:
+    // Public method to register a job for cancellation
+    int registerJob(std::shared_ptr<std::atomic<bool>> cancelFlag);
+    void unregisterJob(int jobId);
+    bool isJobCancelled(int jobId);
 };
 
 class WhisperVadContext : public Napi::ObjectWrap<WhisperVadContext> {

@@ -63,22 +63,31 @@ export interface WhisperContext {
   transcribe(
     filePath: string,
     options?: TranscribeOptions,
-  ): Promise<TranscribeResult>
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
   transcribeFile(
     filePath: string,
     options?: TranscribeOptions,
-  ): Promise<TranscribeResult>
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
   transcribeData(
     audioData: ArrayBuffer,
     options?: TranscribeOptions,
-  ): Promise<TranscribeResult>
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
   release(): Promise<void>
   getModelInfo(): object
   
   // static methods
   toggleNativeLog(
     enable: boolean,
-    callback: (level: string, text: string) => void,
+    callback?: (level: string, text: string) => void,
   ): void
 }
 
@@ -96,7 +105,7 @@ export interface WhisperVadContext {
   // static methods
   toggleNativeLog(
     enable: boolean,
-    callback: (level: string, text: string) => void,
+    callback?: (level: string, text: string) => void,
   ): void
 }
 
