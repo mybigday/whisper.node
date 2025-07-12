@@ -41,19 +41,28 @@ const context = await initWhisper({
   useGpu: true,
 }, libVariant)
 
-
-const result1 = await context.transcribeFile('audio1.wav', {
+// transcribeFile returns { stop, promise }
+const { stop: stop1, promise: promise1 } = context.transcribeFile('audio1.wav', {
   language: 'en',
   temperature: 0.0,
   // ...
 })
 
+const result1 = await promise1
+
+// transcribeData also returns { stop, promise }
 let audioBuffer // PCM 16-bit, mono, 16kHz
-const result2 = await context.transcribeData(audioBuffer, {
+const { stop: stop2, promise: promise2 } = context.transcribeData(audioBuffer, {
   language: 'en',
   temperature: 0.0,
   // ...
 })
+
+const result2 = await promise2
+
+// You can also cancel transcription if needed
+// await stop1() // Cancels the first transcription
+// await stop2() // Cancels the second transcription
 
 // Always release the context when done
 await context.release()
