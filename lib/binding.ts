@@ -120,7 +120,7 @@ const getPlatformPackageName = (variant?: LibVariant): string => {
   const platform = process.platform
   const arch = process.arch
   const variantSuffix = variant && variant !== 'default' ? `-${variant}` : ''
-  return `@whisper-node/whisper-${platform}-${arch}${variantSuffix}`
+  return `@fugood/node-whisper-${platform}-${arch}${variantSuffix}`
 }
 
 const loadPlatformPackage = async (
