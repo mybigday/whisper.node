@@ -226,6 +226,7 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
     // Initialize whisper context
     whisper_context_params cparams = whisper_context_default_params();
     cparams.use_gpu = useGpu;
+    cparams.gpu_device = 0;
     cparams.flash_attn = useFlashAttn;
 
     whisper_context* ctx = whisper_init_from_file_with_params(modelPath.c_str(), cparams);
@@ -576,6 +577,7 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
     // Initialize VAD context with proper parameters
     whisper_vad_context_params vparams = whisper_vad_default_context_params();
     vparams.use_gpu = useGpu;
+    vparams.gpu_device = 0;
     vparams.n_threads = nThreads;
 
     whisper_vad_context* ctx = whisper_vad_init_from_file_with_params(modelPath.c_str(), vparams);
