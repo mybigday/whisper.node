@@ -16,8 +16,9 @@ public:
         WhisperSessionPtr session,
         const std::vector<float>& audioData,
         const whisper_full_params& params,
+        int nProcessors,
         std::shared_ptr<std::atomic<bool>> cancelFlag
-    ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), cancelFlag_(cancelFlag) {}
+    ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), nProcessors_(nProcessors), cancelFlag_(cancelFlag) {}
 
 protected:
     void Execute() override {
@@ -52,7 +53,7 @@ protected:
             return;
         }
 
-        int result = whisper_full(session_->ctx, params_, audioData_.data(), audioData_.size());
+        int result = whisper_full_parallel(session_->ctx, params_, audioData_.data(), audioData_.size(), nProcessors_);
         
         // Check if cancelled after processing
         if (cancelFlag_ && cancelFlag_->load()) {
@@ -103,6 +104,7 @@ private:
     WhisperSessionPtr session_;  // Hold shared pointer instead of raw pointer
     std::vector<float> audioData_;
     whisper_full_params params_;
+    int nProcessors_;
     std::string resultText_;
     std::shared_ptr<std::atomic<bool>> cancelFlag_;
 };
@@ -383,12 +385,13 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
 
         // Create parameters
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
+        int nProcessors = whisper_utils::getNProcessorsFromOptions(options);
 
         // Create async worker with cancellation support
         auto callback = Napi::Function::New(env, [deferred, this, jobId](const Napi::CallbackInfo& cbInfo) {
             // Clean up job tracking
             this->unregisterJob(jobId);
-            
+
             if (cbInfo.Length() >= 2) {
                 if (!cbInfo[0].IsNull()) {
                     deferred.Reject(cbInfo[0]);
@@ -398,7 +401,7 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, cancelFlag);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag);
         worker->Queue();
 
     } catch (const std::exception& e) {
@@ -462,12 +465,13 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
 
         // Create parameters
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
+        int nProcessors = whisper_utils::getNProcessorsFromOptions(options);
 
         // Create async worker with cancellation support
         auto callback = Napi::Function::New(env, [deferred, this, jobId](const Napi::CallbackInfo& cbInfo) {
             // Clean up job tracking
             this->unregisterJob(jobId);
-            
+
             if (cbInfo.Length() >= 2) {
                 if (!cbInfo[0].IsNull()) {
                     deferred.Reject(cbInfo[0]);
@@ -477,7 +481,7 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, cancelFlag);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag);
         worker->Queue();
 
     } catch (const std::exception& e) {

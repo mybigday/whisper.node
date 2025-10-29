@@ -26,6 +26,7 @@ export interface TranscribeOptions {
   beamSize?: number
   bestOf?: number
   prompt?: string
+  nProcessors?: number
 }
 
 export interface TranscribeResult {

@@ -3,7 +3,7 @@ import path from 'path'
 import {
   initWhisper,
   toggleNativeLog,
-  addNativeLogListener
+  addNativeLogListener,
 } from '../lib/index'
 
 // Test configuration
@@ -70,7 +70,7 @@ describe('Whisper transcription', () => {
 
   test('toggleNativeLog should work correctly', async () => {
     const logs: Array<{ level: string; text: string }> = []
-    
+
     // Add log listener
     const { remove } = addNativeLogListener((level, text) => {
       logs.push({ level, text })
@@ -87,7 +87,7 @@ describe('Whisper transcription', () => {
       })
 
       // Wait a bit for any async logging
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise((resolve) => setTimeout(resolve, 100))
 
       // Clean up context
       await context.release()
@@ -114,6 +114,7 @@ describe('Whisper transcription', () => {
       const { promise } = context.transcribeData(audioBuffer, {
         language: 'en',
         temperature: 0.0,
+        nProcessors: 1,
       })
 
       const result = await promise
@@ -163,9 +164,7 @@ describe('Whisper transcription', () => {
   test('should handle transcription errors gracefully', async () => {
     const invalidModelPath = 'nonexistent/model.bin'
 
-    await expect(
-      initWhisper({ filePath: invalidModelPath }),
-    ).rejects.toThrow()
+    await expect(initWhisper({ filePath: invalidModelPath })).rejects.toThrow()
   })
 
   test('should handle invalid audio data', async () => {
@@ -196,9 +195,7 @@ describe('Whisper transcription', () => {
   test('should handle model loading errors', async () => {
     const invalidModelPath = 'nonexistent/model.bin'
 
-    await expect(
-      initWhisper({ filePath: invalidModelPath }),
-    ).rejects.toThrow()
+    await expect(initWhisper({ filePath: invalidModelPath })).rejects.toThrow()
   })
 
   test(

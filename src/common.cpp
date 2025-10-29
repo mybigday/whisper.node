@@ -155,6 +155,15 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
     return params;
 }
 
+int getNProcessorsFromOptions(const Napi::Object& options) {
+    auto value = options.Get("nProcessors");
+    if (value.IsNumber()) {
+        return value.As<Napi::Number>().Int32Value();
+    }
+    // Default to 1 processor (no parallelization)
+    return 1;
+}
+
 whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
     whisper_vad_params params = whisper_vad_default_params();
 
