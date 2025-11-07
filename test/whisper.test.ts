@@ -233,4 +233,128 @@ describe('Whisper transcription', () => {
     },
     TEST_TIMEOUT,
   )
+
+  test(
+    'should call onProgress callback during transcription',
+    async () => {
+      const audioBuffer = loadWavFile(SAMPLE_AUDIO_PATH)
+
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      const progressUpdates: number[] = []
+
+      const { promise } = context.transcribeData(audioBuffer, {
+        language: 'en',
+        temperature: 0.0,
+        onProgress: (progress) => {
+          console.log('Progress:', progress)
+          progressUpdates.push(progress)
+        },
+      })
+
+      const result = await promise
+
+      expect(result).toBeDefined()
+      expect(progressUpdates.length).toBeGreaterThan(0)
+
+      // Progress should be between 0 and 100
+      progressUpdates.forEach((progress) => {
+        expect(progress).toBeGreaterThanOrEqual(0)
+        expect(progress).toBeLessThanOrEqual(100)
+      })
+
+      console.log('Total progress updates:', progressUpdates.length)
+
+      await context.release()
+    },
+    TEST_TIMEOUT,
+  )
+
+  test(
+    'should call onNewSegments callback during transcription',
+    async () => {
+      const audioBuffer = loadWavFile(SAMPLE_AUDIO_PATH)
+
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      const segmentUpdates: any[] = []
+
+      const { promise } = context.transcribeData(audioBuffer, {
+        language: 'en',
+        temperature: 0.0,
+        onNewSegments: (segmentResult) => {
+          console.log(
+            'New segments:',
+            segmentResult.nNew,
+            'Total:',
+            segmentResult.totalNNew,
+          )
+          console.log('Segment text:', segmentResult.result)
+          segmentUpdates.push(segmentResult)
+        },
+      })
+
+      const result = await promise
+
+      expect(result).toBeDefined()
+      expect(segmentUpdates.length).toBeGreaterThan(0)
+
+      // Verify segment structure
+      segmentUpdates.forEach((update) => {
+        expect(typeof update.nNew).toBe('number')
+        expect(typeof update.totalNNew).toBe('number')
+        expect(typeof update.result).toBe('string')
+        expect(Array.isArray(update.segments)).toBe(true)
+      })
+
+      console.log('Total segment updates:', segmentUpdates.length)
+
+      await context.release()
+    },
+    TEST_TIMEOUT,
+  )
+
+  test(
+    'should call both onProgress and onNewSegments callbacks',
+    async () => {
+      const audioBuffer = loadWavFile(SAMPLE_AUDIO_PATH)
+
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      const progressUpdates: number[] = []
+      const segmentUpdates: any[] = []
+
+      const { promise } = context.transcribeData(audioBuffer, {
+        language: 'en',
+        temperature: 0.0,
+        onProgress: (progress) => {
+          progressUpdates.push(progress)
+        },
+        onNewSegments: (segmentResult) => {
+          segmentUpdates.push(segmentResult)
+        },
+      })
+
+      const result = await promise
+
+      expect(result).toBeDefined()
+      expect(progressUpdates.length).toBeGreaterThan(0)
+      expect(segmentUpdates.length).toBeGreaterThan(0)
+
+      console.log('Progress updates:', progressUpdates.length)
+      console.log('Segment updates:', segmentUpdates.length)
+
+      await context.release()
+    },
+    TEST_TIMEOUT,
+  )
 })

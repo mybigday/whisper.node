@@ -6,6 +6,7 @@ import type {
   NativeVadContextOptions,
   TranscribeOptions,
   TranscribeResult,
+  TranscribeNewSegmentsResult,
   VadOptions,
   VadSegment,
   LibVariant,
@@ -20,6 +21,7 @@ export type {
   NativeVadContextOptions,
   TranscribeOptions,
   TranscribeResult,
+  TranscribeNewSegmentsResult,
   VadOptions,
   VadSegment,
   LibVariant

@@ -7,6 +7,19 @@
 #include <sstream>
 #include <thread>
 #include <future>
+#include <condition_variable>
+
+// Callback context for progress and new segments
+struct TranscribeCallbackContext {
+    Napi::ThreadSafeFunction tsfnProgress;
+    Napi::ThreadSafeFunction tsfnNewSegments;
+    std::shared_ptr<std::atomic<bool>> cancelFlag;
+    int totalNNew = 0;
+    bool tdrzEnable = false;
+    std::atomic<int> pendingCallbacks{0};
+    std::mutex callbackMutex;
+    std::condition_variable callbackCV;
+};
 
 // Helper class for async transcription
 class WhisperTranscribeWorker : public Napi::AsyncWorker {
@@ -17,8 +30,14 @@ public:
         const std::vector<float>& audioData,
         const whisper_full_params& params,
         int nProcessors,
-        std::shared_ptr<std::atomic<bool>> cancelFlag
-    ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), nProcessors_(nProcessors), cancelFlag_(cancelFlag) {}
+        std::shared_ptr<std::atomic<bool>> cancelFlag,
+        Napi::ThreadSafeFunction tsfnProgress = Napi::ThreadSafeFunction(),
+        Napi::ThreadSafeFunction tsfnNewSegments = Napi::ThreadSafeFunction(),
+        bool hasProgress = false,
+        bool hasNewSegments = false
+    ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), nProcessors_(nProcessors),
+        cancelFlag_(cancelFlag), tsfnProgress_(tsfnProgress), tsfnNewSegments_(tsfnNewSegments),
+        hasProgress_(hasProgress), hasNewSegments_(hasNewSegments) {}
 
 protected:
     void Execute() override {
@@ -41,7 +60,7 @@ protected:
 
         // Lock the session to ensure thread safety
         std::lock_guard<std::mutex> lock(session_->mtx);
-        
+
         if (!session_->ctx) {
             SetError("Whisper context was destroyed");
             return;
@@ -53,14 +72,106 @@ protected:
             return;
         }
 
-        int result = whisper_full_parallel(session_->ctx, params_, audioData_.data(), audioData_.size(), nProcessors_);
-        
+        // Create a copy of params and set up callbacks if needed
+        whisper_full_params params_copy = params_;
+        TranscribeCallbackContext callbackCtx;
+        callbackCtx.tsfnProgress = tsfnProgress_;
+        callbackCtx.tsfnNewSegments = tsfnNewSegments_;
+        callbackCtx.cancelFlag = cancelFlag_;
+        callbackCtx.totalNNew = 0;
+        callbackCtx.tdrzEnable = params_.tdrz_enable;
+
+        if (hasProgress_) {
+            params_copy.progress_callback = [](struct whisper_context* /*ctx*/, struct whisper_state* /*state*/, int progress, void* user_data) {
+                TranscribeCallbackContext* cbCtx = static_cast<TranscribeCallbackContext*>(user_data);
+                if (cbCtx->cancelFlag && cbCtx->cancelFlag->load()) {
+                    return;
+                }
+                if (cbCtx->tsfnProgress) {
+                    cbCtx->pendingCallbacks++;
+                    auto status = cbCtx->tsfnProgress.NonBlockingCall([cbCtx, progress](Napi::Env env, Napi::Function jsCallback) {
+                        jsCallback.Call({Napi::Number::New(env, progress)});
+                        cbCtx->pendingCallbacks--;
+                        cbCtx->callbackCV.notify_one();
+                    });
+                    if (status != napi_ok) {
+                        cbCtx->pendingCallbacks--;
+                    }
+                }
+            };
+            params_copy.progress_callback_user_data = &callbackCtx;
+        }
+
+        if (hasNewSegments_) {
+            params_copy.new_segment_callback = [](struct whisper_context* ctx, struct whisper_state* /*state*/, int n_new, void* user_data) {
+                TranscribeCallbackContext* cbCtx = static_cast<TranscribeCallbackContext*>(user_data);
+                if (cbCtx->cancelFlag && cbCtx->cancelFlag->load()) {
+                    return;
+                }
+                cbCtx->totalNNew += n_new;
+
+                if (cbCtx->tsfnNewSegments) {
+                    // Capture values needed for the callback
+                    int totalNNew = cbCtx->totalNNew;
+                    bool tdrzEnable = cbCtx->tdrzEnable;
+
+                    cbCtx->pendingCallbacks++;
+                    auto status = cbCtx->tsfnNewSegments.NonBlockingCall([cbCtx, ctx, n_new, totalNNew, tdrzEnable](Napi::Env env, Napi::Function jsCallback) {
+                        std::string text = "";
+                        Napi::Array segments = Napi::Array::New(env);
+
+                        for (int i = totalNNew - n_new; i < totalNNew; i++) {
+                            const char* text_cur = whisper_full_get_segment_text(ctx, i);
+                            std::string segment_text = text_cur;
+
+                            if (tdrzEnable && whisper_full_get_segment_speaker_turn_next(ctx, i)) {
+                                segment_text += " [SPEAKER_TURN]";
+                            }
+
+                            text += segment_text;
+
+                            Napi::Object segment = Napi::Object::New(env);
+                            segment.Set("text", segment_text);
+                            segment.Set("t0", whisper_full_get_segment_t0(ctx, i) * 10);
+                            segment.Set("t1", whisper_full_get_segment_t1(ctx, i) * 10);
+                            segments.Set(static_cast<uint32_t>(i - (totalNNew - n_new)), segment);
+                        }
+
+                        Napi::Object result = Napi::Object::New(env);
+                        result.Set("nNew", n_new);
+                        result.Set("totalNNew", totalNNew);
+                        result.Set("result", text);
+                        result.Set("segments", segments);
+
+                        jsCallback.Call({result});
+
+                        cbCtx->pendingCallbacks--;
+                        cbCtx->callbackCV.notify_one();
+                    });
+                    if (status != napi_ok) {
+                        cbCtx->pendingCallbacks--;
+                    }
+                }
+            };
+            params_copy.new_segment_callback_user_data = &callbackCtx;
+        }
+
+        int result = whisper_full_parallel(session_->ctx, params_copy, audioData_.data(), audioData_.size(), nProcessors_);
+
+        // Wait for all pending callbacks to complete before returning
+        {
+            std::unique_lock<std::mutex> lock(callbackCtx.callbackMutex);
+            callbackCtx.callbackCV.wait(lock, [&callbackCtx] {
+                return callbackCtx.pendingCallbacks.load() == 0;
+            });
+        }
+
         // Check if cancelled after processing
         if (cancelFlag_ && cancelFlag_->load()) {
             SetError("Transcription cancelled");
             return;
         }
-        
+
         if (result != 0) {
             SetError("Transcription failed");
             return;
@@ -77,27 +188,50 @@ protected:
 
     void OnOK() override {
         if (!session_ || !session_->isValid()) {
+            CleanupCallbacks();
             Callback().Call({Napi::Error::New(Env(), "Context was destroyed").Value(), Env().Null()});
             return;
         }
-        
+
         // Check if cancelled
         if (cancelFlag_ && cancelFlag_->load()) {
+            CleanupCallbacks();
             Callback().Call({Napi::Error::New(Env(), "Transcription cancelled").Value(), Env().Null()});
             return;
         }
-        
+
         // Handle empty audio data case
         if (audioData_.empty()) {
+            CleanupCallbacks();
             auto result = whisper_utils::createTranscribeResult(Env(), nullptr, resultText_, false);
             Callback().Call({Env().Null(), result});
             return;
         }
-        
+
         std::lock_guard<std::mutex> lock(session_->mtx);
         bool isAborted = cancelFlag_ && cancelFlag_->load();
         auto result = whisper_utils::createTranscribeResult(Env(), session_->ctx, resultText_, isAborted);
+
+        // Clean up callbacks BEFORE calling completion callback
+        // This ensures BlockingCall callbacks complete before the promise resolves
+        CleanupCallbacks();
+
         Callback().Call({Env().Null(), result});
+    }
+
+    void OnError(const Napi::Error& error) override {
+        CleanupCallbacks();
+        AsyncWorker::OnError(error);
+    }
+
+    void CleanupCallbacks() {
+        // Release thread-safe functions if they exist
+        if (hasProgress_ && tsfnProgress_) {
+            tsfnProgress_.Release();
+        }
+        if (hasNewSegments_ && tsfnNewSegments_) {
+            tsfnNewSegments_.Release();
+        }
     }
 
 private:
@@ -107,6 +241,10 @@ private:
     int nProcessors_;
     std::string resultText_;
     std::shared_ptr<std::atomic<bool>> cancelFlag_;
+    Napi::ThreadSafeFunction tsfnProgress_;
+    Napi::ThreadSafeFunction tsfnNewSegments_;
+    bool hasProgress_;
+    bool hasNewSegments_;
 };
 
 // Helper class for async VAD
@@ -387,7 +525,37 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
         int nProcessors = whisper_utils::getNProcessorsFromOptions(options);
 
-        // Create async worker with cancellation support
+        // Check for onProgress callback
+        Napi::ThreadSafeFunction tsfnProgress;
+        bool hasProgress = false;
+        auto onProgressValue = options.Get("onProgress");
+        if (onProgressValue.IsFunction()) {
+            hasProgress = true;
+            tsfnProgress = Napi::ThreadSafeFunction::New(
+                env,
+                onProgressValue.As<Napi::Function>(),
+                "WhisperProgressCallback",
+                0,
+                1
+            );
+        }
+
+        // Check for onNewSegments callback
+        Napi::ThreadSafeFunction tsfnNewSegments;
+        bool hasNewSegments = false;
+        auto onNewSegmentsValue = options.Get("onNewSegments");
+        if (onNewSegmentsValue.IsFunction()) {
+            hasNewSegments = true;
+            tsfnNewSegments = Napi::ThreadSafeFunction::New(
+                env,
+                onNewSegmentsValue.As<Napi::Function>(),
+                "WhisperNewSegmentsCallback",
+                0,
+                1
+            );
+        }
+
+        // Create async worker with cancellation support and callbacks
         auto callback = Napi::Function::New(env, [deferred, this, jobId](const Napi::CallbackInfo& cbInfo) {
             // Clean up job tracking
             this->unregisterJob(jobId);
@@ -401,7 +569,7 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments);
         worker->Queue();
 
     } catch (const std::exception& e) {
@@ -411,11 +579,11 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
 
     // Create the return object with stop and promise
     auto result = Napi::Object::New(env);
-    
+
     // Create stop function
     auto stopFunction = Napi::Function::New(env, [this, jobId](const Napi::CallbackInfo& stopInfo) {
         Napi::Env env = stopInfo.Env();
-        
+
         // Cancel the job directly
         {
             std::lock_guard<std::mutex> lock(this->_cancelMutex);
@@ -424,12 +592,12 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
                 it->second->store(true);
             }
         }
-        
+
         auto deferred = Napi::Promise::Deferred::New(env);
         deferred.Resolve(env.Undefined());
         return deferred.Promise();
     });
-    
+
     result.Set("stop", stopFunction);
     result.Set("promise", deferred.Promise());
 
@@ -467,7 +635,37 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
         int nProcessors = whisper_utils::getNProcessorsFromOptions(options);
 
-        // Create async worker with cancellation support
+        // Check for onProgress callback
+        Napi::ThreadSafeFunction tsfnProgress;
+        bool hasProgress = false;
+        auto onProgressValue = options.Get("onProgress");
+        if (onProgressValue.IsFunction()) {
+            hasProgress = true;
+            tsfnProgress = Napi::ThreadSafeFunction::New(
+                env,
+                onProgressValue.As<Napi::Function>(),
+                "WhisperProgressCallback",
+                0,
+                1
+            );
+        }
+
+        // Check for onNewSegments callback
+        Napi::ThreadSafeFunction tsfnNewSegments;
+        bool hasNewSegments = false;
+        auto onNewSegmentsValue = options.Get("onNewSegments");
+        if (onNewSegmentsValue.IsFunction()) {
+            hasNewSegments = true;
+            tsfnNewSegments = Napi::ThreadSafeFunction::New(
+                env,
+                onNewSegmentsValue.As<Napi::Function>(),
+                "WhisperNewSegmentsCallback",
+                0,
+                1
+            );
+        }
+
+        // Create async worker with cancellation support and callbacks
         auto callback = Napi::Function::New(env, [deferred, this, jobId](const Napi::CallbackInfo& cbInfo) {
             // Clean up job tracking
             this->unregisterJob(jobId);
@@ -481,7 +679,7 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments);
         worker->Queue();
 
     } catch (const std::exception& e) {
@@ -491,11 +689,11 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
 
     // Create the return object with stop and promise
     auto result = Napi::Object::New(env);
-    
+
     // Create stop function
     auto stopFunction = Napi::Function::New(env, [this, jobId](const Napi::CallbackInfo& stopInfo) {
         Napi::Env env = stopInfo.Env();
-        
+
         // Cancel the job directly
         {
             std::lock_guard<std::mutex> lock(this->_cancelMutex);
@@ -504,12 +702,12 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
                 it->second->store(true);
             }
         }
-        
+
         auto deferred = Napi::Promise::Deferred::New(env);
         deferred.Resolve(env.Undefined());
         return deferred.Promise();
     });
-    
+
     result.Set("stop", stopFunction);
     result.Set("promise", deferred.Promise());
 

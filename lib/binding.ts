@@ -27,6 +27,21 @@ export interface TranscribeOptions {
   bestOf?: number
   prompt?: string
   nProcessors?: number
+  /**
+   * Progress callback, the progress is between 0 and 100
+   */
+  onProgress?: (progress: number) => void
+  /**
+   * Callback when new segments are transcribed
+   */
+  onNewSegments?: (result: TranscribeNewSegmentsResult) => void
+}
+
+export interface TranscribeNewSegmentsResult {
+  nNew: number
+  totalNNew: number
+  result: string
+  segments: TranscribeResult['segments']
 }
 
 export interface TranscribeResult {
