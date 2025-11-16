@@ -355,7 +355,7 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
 
     auto options = info[0].As<Napi::Object>();
     std::string modelPath = whisper_utils::getString(options.Get("filePath"));
-    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), true);
+    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), USE_GPU);
     bool useFlashAttn = whisper_utils::getBool(options.Get("useFlashAttn"), false);
 
     if (modelPath.empty()) {
@@ -768,7 +768,7 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
 
     auto options = info[0].As<Napi::Object>();
     std::string modelPath = whisper_utils::getString(options.Get("filePath"));
-    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), true);
+    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), USE_GPU);
     int nThreads = whisper_utils::getInt(options.Get("nThreads"), std::thread::hardware_concurrency());
 
     if (modelPath.empty()) {

@@ -122,6 +122,10 @@ endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
 add_subdirectory("whisper.cpp")
 
+if (NOT GGML_VULKAN AND NOT GGML_CUDA AND NOT GGML_METAL AND NOT GGML_CLBLAST)
+  add_definitions(-DNO_GPU_SUPPORT)
+endif()
+
 include_directories(
   ${CMAKE_JS_INC}
   "whisper.cpp"

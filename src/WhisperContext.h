@@ -4,6 +4,12 @@
 #include <atomic>
 #include <unordered_map>
 
+#ifdef NO_GPU_SUPPORT
+#define USE_GPU false
+#else
+#define USE_GPU true
+#endif
+
 class WhisperContext : public Napi::ObjectWrap<WhisperContext> {
 public:
     WhisperContext(const Napi::CallbackInfo& info);
