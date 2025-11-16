@@ -7,7 +7,7 @@
   "scripts": {
     "bootstrap": "npm install --omit=optional",
     "postinstall": "node scripts/check.js",
-    "pretest": "./scripts/download-test-models.sh",
+    "pretest": "node scripts/download-test-models.js",
     "test": "jest",
     "build": "npx cmake-js build",
     "build-js": "tsc",
