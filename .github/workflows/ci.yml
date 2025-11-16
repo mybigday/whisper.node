@@ -3,7 +3,10 @@ on: push
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: matrix.os
 
     steps:
     - uses: actions/checkout@v4
@@ -13,6 +16,7 @@ jobs:
       with:
         node-version: 20
     - name: Install LLVM and Clang
+      if: matrix.os == 'ubuntu-latest'
       run: |
         curl -L https://apt.llvm.org/llvm.sh | ALL=1 sudo bash -s 18
         sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
@@ -21,5 +25,7 @@ jobs:
         sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-18 100
         sudo update-alternatives --install /usr/bin/llvm-ranlib llvm-ranlib /usr/bin/llvm-ranlib-18 100
         sudo update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-18 100
-    - run: npm install --omit=optional --build-from-source
-    - run: npm run test
+    - name: Install dependencies
+      run: npm install --omit=optional --build-from-source
+    - name: Run test
+      run: npm run test
