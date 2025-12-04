@@ -27,6 +27,7 @@ private:
     Napi::Value TranscribeFile(const Napi::CallbackInfo& info);
     Napi::Value TranscribeData(const Napi::CallbackInfo& info);
     Napi::Value AbortTranscribe(const Napi::CallbackInfo& info);
+    Napi::Value Bench(const Napi::CallbackInfo& info);
     Napi::Value Release(const Napi::CallbackInfo& info);
 
     // Internal data

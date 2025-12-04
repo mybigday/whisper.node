@@ -483,6 +483,7 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("transcribe", &WhisperContext::TranscribeFile),
         InstanceMethod("transcribeData", &WhisperContext::TranscribeData),
         InstanceMethod("abortTranscribe", &WhisperContext::AbortTranscribe),
+        InstanceMethod("bench", &WhisperContext::Bench),
         InstanceMethod("release", &WhisperContext::Release),
     });
 
@@ -734,6 +735,122 @@ Napi::Value WhisperContext::AbortTranscribe(const Napi::CallbackInfo& info) {
     
     auto deferred = Napi::Promise::Deferred::New(env);
     deferred.Resolve(env.Undefined());
+    return deferred.Promise();
+}
+
+Napi::Value WhisperContext::Bench(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    int n_threads = 1;
+    if (info.Length() >= 1 && info[0].IsNumber()) {
+        n_threads = info[0].As<Napi::Number>().Int32Value();
+    }
+
+    if (!_sess || !_sess->isValid()) {
+        Napi::Error::New(env, "Invalid whisper context").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    auto deferred = Napi::Promise::Deferred::New(env);
+
+    // Lock the session for benchmarking
+    std::lock_guard<std::mutex> lock(_sess->mtx);
+
+    if (!_sess->ctx) {
+        deferred.Reject(Napi::Error::New(env, "Whisper context was destroyed").Value());
+        return deferred.Promise();
+    }
+
+    whisper_context* ctx = _sess->ctx;
+
+    // Get model info for setting mel
+    const int n_mels = whisper_model_n_mels(ctx);
+
+    // Set empty mel spectrogram
+    if (int ret = whisper_set_mel(ctx, nullptr, 0, n_mels)) {
+        std::string error = "error: failed to set mel: " + std::to_string(ret);
+        deferred.Reject(Napi::Error::New(env, error).Value());
+        return deferred.Promise();
+    }
+
+    // Heat encoder
+    if (int ret = whisper_encode(ctx, 0, n_threads) != 0) {
+        std::string error = "error: failed to encode: " + std::to_string(ret);
+        deferred.Reject(Napi::Error::New(env, error).Value());
+        return deferred.Promise();
+    }
+
+    // Prepare tokens for decode
+    whisper_token tokens[512];
+    memset(tokens, 0, sizeof(tokens));
+
+    // Prompt heat
+    if (int ret = whisper_decode(ctx, tokens, 256, 0, n_threads) != 0) {
+        std::string error = "error: failed to decode: " + std::to_string(ret);
+        deferred.Reject(Napi::Error::New(env, error).Value());
+        return deferred.Promise();
+    }
+
+    // Text-generation heat
+    if (int ret = whisper_decode(ctx, tokens, 1, 256, n_threads) != 0) {
+        std::string error = "error: failed to decode: " + std::to_string(ret);
+        deferred.Reject(Napi::Error::New(env, error).Value());
+        return deferred.Promise();
+    }
+
+    // Reset timings for actual benchmark
+    whisper_reset_timings(ctx);
+
+    // Actual encode run
+    if (int ret = whisper_encode(ctx, 0, n_threads) != 0) {
+        std::string error = "error: failed to encode: " + std::to_string(ret);
+        deferred.Reject(Napi::Error::New(env, error).Value());
+        return deferred.Promise();
+    }
+
+    // Text-generation (256 decode calls with 1 token each)
+    for (int i = 0; i < 256; i++) {
+        if (int ret = whisper_decode(ctx, tokens, 1, i, n_threads) != 0) {
+            std::string error = "error: failed to decode: " + std::to_string(ret);
+            deferred.Reject(Napi::Error::New(env, error).Value());
+            return deferred.Promise();
+        }
+    }
+
+    // Batched decoding (64 calls with 5 tokens each)
+    for (int i = 0; i < 64; i++) {
+        if (int ret = whisper_decode(ctx, tokens, 5, 0, n_threads) != 0) {
+            std::string error = "error: failed to decode: " + std::to_string(ret);
+            deferred.Reject(Napi::Error::New(env, error).Value());
+            return deferred.Promise();
+        }
+    }
+
+    // Prompt processing (16 calls with 256 tokens each)
+    for (int i = 0; i < 16; i++) {
+        if (int ret = whisper_decode(ctx, tokens, 256, 0, n_threads) != 0) {
+            std::string error = "error: failed to decode: " + std::to_string(ret);
+            deferred.Reject(Napi::Error::New(env, error).Value());
+            return deferred.Promise();
+        }
+    }
+
+    // Get timings
+    const struct whisper_timings* timings = whisper_get_timings(ctx);
+
+    // Get system info
+    const char* system_info = whisper_print_system_info();
+
+    // Build result object
+    auto result = Napi::Object::New(env);
+    result.Set("config", Napi::String::New(env, system_info ? system_info : ""));
+    result.Set("nThreads", Napi::Number::New(env, n_threads));
+    result.Set("encodeMs", Napi::Number::New(env, timings ? timings->encode_ms : 0.0f));
+    result.Set("decodeMs", Napi::Number::New(env, timings ? timings->decode_ms : 0.0f));
+    result.Set("batchdMs", Napi::Number::New(env, timings ? timings->batchd_ms : 0.0f));
+    result.Set("promptMs", Napi::Number::New(env, timings ? timings->prompt_ms : 0.0f));
+
+    deferred.Resolve(result);
     return deferred.Promise();
 }
 

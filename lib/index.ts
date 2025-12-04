@@ -9,6 +9,7 @@ import type {
   TranscribeNewSegmentsResult,
   VadOptions,
   VadSegment,
+  BenchResult,
   LibVariant,
   Module
 } from './binding';
@@ -24,6 +25,7 @@ export type {
   TranscribeNewSegmentsResult,
   VadOptions,
   VadSegment,
+  BenchResult,
   LibVariant
 };
 

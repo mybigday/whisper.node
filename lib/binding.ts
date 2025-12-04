@@ -74,6 +74,15 @@ export interface VadSegment {
   t1: number
 }
 
+export interface BenchResult {
+  config: string
+  nThreads: number
+  encodeMs: number
+  decodeMs: number
+  batchdMs: number
+  promptMs: number
+}
+
 export interface WhisperContext {
   new (options: NativeContextOptions): WhisperContext
   transcribe(
@@ -97,6 +106,7 @@ export interface WhisperContext {
     stop: () => Promise<void>
     promise: Promise<TranscribeResult>
   }
+  bench(nThreads: number): Promise<BenchResult>
   release(): Promise<void>
   getModelInfo(): object
   
