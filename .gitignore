@@ -10,3 +10,8 @@ tmp.sess
 *.node
 package-lock.json
 .cache
+*.dll
+*.so
+*.dylib
+
+.python-version

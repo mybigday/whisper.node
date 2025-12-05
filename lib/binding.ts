@@ -140,7 +140,7 @@ export interface Module {
   WhisperVadContext: WhisperVadContext
 }
 
-export type LibVariant = 'default' | 'vulkan' | 'cuda'
+export type LibVariant = 'default' | 'vulkan' | 'cuda' | 'snapdragon'
 
 const getPlatformPackageName = (variant?: LibVariant): string => {
   const platform = process.platform

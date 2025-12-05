@@ -1,0 +1,53 @@
+{
+  "name": "@fugood/node-whisper-linux-arm64-snapdragon",
+  "version": "1.0.8",
+  "description": "Native module for An another Node binding of whisper.cpp (linux-arm64-snapdragon)",
+  "main": "index.node",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mybigday/whisper.node.git"
+  },
+  "keywords": [
+    "whisper",
+    "speech-recognition",
+    "audio",
+    "transcription",
+    "voice-activity-detection",
+    "vad",
+    "cpp",
+    "node-addon",
+    "whisper.cpp",
+    "linux",
+    "arm64",
+    "native",
+    "qualcomm",
+    "snapdragon",
+    "opencl",
+    "hexagon"
+  ],
+  "authors": [
+    "ggml / whisper.cpp contributors",
+    "Hans <hans.chen@bricks.tools>",
+    "Jhen <developer@jhen.me>"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mybigday/whisper.node/issues"
+  },
+  "homepage": "https://github.com/mybigday/whisper.node#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "files": [
+    "index.node",
+    "*.so"
+  ],
+  "variant": "snapdragon"
+}

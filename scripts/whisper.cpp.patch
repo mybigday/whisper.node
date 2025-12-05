@@ -11,6 +11,67 @@ index e52e050a..c1000c16 100644
          else()
              check_cxx_compiler_flag(-mfp16-format=ieee GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E)
              if (NOT "${GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E}" STREQUAL "")
+diff --git a/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp b/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp
+index cabd301a..f1eb0f56 100644
+--- a/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp
++++ b/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp
+@@ -3481,11 +3481,25 @@ static const char * ggml_backend_hexagon_device_get_description(ggml_backend_dev
+     GGML_UNUSED(dev);
+ }
+ 
++// ~2GB per session for now
++#define GGML_HEXAGON_SESSION_MEMORY_DEFAULT (2ULL * 1024 * 1024 * 1024)
++// Max to 3.5GB
++#define GGML_HEXAGON_SESSION_MEMORY_MAX (3ULL * 1024 * 1024 * 1024  +  512ULL * 1024 * 1024)
++
+ static void ggml_backend_hexagon_device_get_memory(ggml_backend_dev_t dev, size_t * free, size_t * total) {
+-    // ~2GB per session for now
+-    *free  = 2ULL * 1024 * 1024 * 1024;
+-    *total = *free;
++    const char * str_mem = getenv("GGML_HEXAGON_SESSION_MEMORY");
++    if (str_mem) {
++        *free = std::stoull(str_mem);
++        if (*free < GGML_HEXAGON_SESSION_MEMORY_DEFAULT) {
++            *free = GGML_HEXAGON_SESSION_MEMORY_DEFAULT;
++        } else if (*free > GGML_HEXAGON_SESSION_MEMORY_MAX) {
++            *free = GGML_HEXAGON_SESSION_MEMORY_MAX;
++        }
++    } else {
++        *free = GGML_HEXAGON_SESSION_MEMORY_DEFAULT;
++    }
+ 
++    *total = *free;
+     GGML_UNUSED(dev);
+ }
+ 
+@@ -3666,10 +3680,17 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
+         }
+     }
+ 
++#if defined(__ANDROID__)
+     if(opt_arch < 75) {
+         opt_ndev = 1;
+-        GGML_LOG_WARN("ggml-hex: forcing ndev to 1 for SoCs archs lower than v75.\n");
++        GGML_LOG_WARN("ggml-hex: forcing ndev to 1 for SoCs archs lower than v75 for Android.\n");
+     }
++#else
++    if(opt_arch < 73) {
++        opt_ndev = 1;
++        GGML_LOG_WARN("ggml-hex: forcing ndev to 1 for SoCs archs lower than v73 for Linux and Windows.\n");
++    }
++#endif
+ 
+     GGML_LOG_INFO("ggml-hex: Hexagon Arch version v%d\n", opt_arch);
+ 
+@@ -3682,6 +3703,8 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
+         } catch (std::exception const &exc) {
+             GGML_LOG_ERROR("ggml-hex: failed to create device/session %zu\n", i);
+             devices[i].context = nullptr;
++            opt_ndev = i;
++            break;
+         }
+     }
+ }
 diff --git a/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt b/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
 index de01336c..29b1a043 100644
 --- a/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
