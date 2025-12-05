@@ -39,7 +39,8 @@ if [ $ARCH == "x86_64" ]; then
 else
   # default
   if [ $TARGET == "all" ] || [ $TARGET == "default" ]; then
-    npx cmake-js rebuild -C --CDTO_PACKAGE=ON  --CDCLANG_USE_GOMP=ON --CDGGML_NATIVE=OFF
+    npx cmake-js rebuild -C --CDTO_PACKAGE=ON --CDCLANG_USE_GOMP=ON --CDGGML_NATIVE=OFF \
+      --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16
   fi
 
   # vulkan
@@ -47,6 +48,7 @@ else
     npx cmake-js rebuild -C --CDTO_PACKAGE=ON \
       --CDCLANG_USE_GOMP=ON \
       --CDGGML_NATIVE=OFF \
+      --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
       --CDGGML_VULKAN=1 \
       --CDVULKAN_SDK="$(realpath 'externals/arm64-Vulkan-SDK')" \
       --CDVARIANT=vulkan
@@ -56,9 +58,10 @@ else
   if [ $TARGET == "all" ] || [ $TARGET == "cuda" ]; then
     npx cmake-js rebuild -C --CDTO_PACKAGE=ON \
       --CDCLANG_USE_GOMP=ON \
+      --CDGGML_NATIVE=OFF \
+      --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
       --CDGGML_CUDA=1 \
       --CDVARIANT=cuda \
-      --CDGGML_NATIVE=OFF \
       --CDCMAKE_CUDA_ARCHITECTURES=87 # > Jetson Orin series
   fi
 fi
