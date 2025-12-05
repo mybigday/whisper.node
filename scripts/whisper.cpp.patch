@@ -12,10 +12,18 @@ index e52e050a..c1000c16 100644
              check_cxx_compiler_flag(-mfp16-format=ieee GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E)
              if (NOT "${GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E}" STREQUAL "")
 diff --git a/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp b/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp
-index cabd301a..f1eb0f56 100644
+index cabd301a..22361297 100644
 --- a/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp
 +++ b/whisper.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp
-@@ -3481,11 +3481,25 @@ static const char * ggml_backend_hexagon_device_get_description(ggml_backend_dev
+@@ -8,6 +8,7 @@
+ #include <atomic>
+ #include <chrono>
+ #include <mutex>
++#include <stdexcept>
+ #include <string>
+ 
+ #ifdef _WIN32
+@@ -3481,11 +3482,25 @@ static const char * ggml_backend_hexagon_device_get_description(ggml_backend_dev
      GGML_UNUSED(dev);
  }
  
@@ -44,7 +52,7 @@ index cabd301a..f1eb0f56 100644
      GGML_UNUSED(dev);
  }
  
-@@ -3666,10 +3680,17 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
+@@ -3666,10 +3681,17 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
          }
      }
  
@@ -63,7 +71,7 @@ index cabd301a..f1eb0f56 100644
  
      GGML_LOG_INFO("ggml-hex: Hexagon Arch version v%d\n", opt_arch);
  
-@@ -3682,6 +3703,8 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
+@@ -3682,6 +3704,8 @@ ggml_hexagon_registry::ggml_hexagon_registry(ggml_backend_reg_t reg) {
          } catch (std::exception const &exc) {
              GGML_LOG_ERROR("ggml-hex: failed to create device/session %zu\n", i);
              devices[i].context = nullptr;
