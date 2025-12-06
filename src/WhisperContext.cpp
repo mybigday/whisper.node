@@ -271,7 +271,7 @@ protected:
 
         // Lock the session to ensure thread safety
         std::lock_guard<std::mutex> lock(session_->mtx);
-        
+
         if (!session_->ctx) {
             SetError("VAD context was destroyed");
             return;
@@ -283,7 +283,7 @@ protected:
         // Calculate speech probability from VAD probabilities
         int n_probs = whisper_vad_n_probs(session_->ctx);
         float* probs = whisper_vad_probs(session_->ctx);
-        
+
         if (n_probs > 0 && probs) {
             // Calculate average probability across all frames
             float prob_sum = 0.0f;
@@ -300,17 +300,17 @@ protected:
             // Get VAD segments using provided parameters
             whisper_vad_segments* segments = whisper_vad_segments_from_samples(
                 session_->ctx, vadParams_, audioData_.data(), audioData_.size());
-            
+
             if (segments) {
                 int n_segments = whisper_vad_segments_n_segments(segments);
-                
+
                 for (int i = 0; i < n_segments; i++) {
                     float t0 = whisper_vad_segments_get_segment_t0(segments, i);
                     float t1 = whisper_vad_segments_get_segment_t1(segments, i);
-                    
+
                     segments_.push_back({t0, t1});
                 }
-                
+
                 whisper_vad_free_segments(segments);
             }
         }
@@ -319,7 +319,7 @@ protected:
     void OnOK() override {
         Napi::Env env = Env();
         Napi::Array result = Napi::Array::New(env);
-        
+
         // Create VadSegment[] - array of objects with t0 and t1 properties
         for (size_t i = 0; i < segments_.size(); i++) {
             Napi::Object segment = Napi::Object::New(env);
@@ -327,7 +327,7 @@ protected:
             segment.Set("t1", segments_[i].second);
             result.Set(i, segment);
         }
-        
+
         Callback().Call({Env().Null(), result});
     }
 
@@ -366,7 +366,7 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
     // Initialize whisper context
     whisper_context_params cparams = whisper_context_default_params();
     cparams.use_gpu = useGpu;
-    cparams.gpu_device = 0;
+    cparams.gpu_device = 1; // TEMP: HTP0
     cparams.flash_attn = useFlashAttn;
 
     whisper_context* ctx = whisper_init_from_file_with_params(modelPath.c_str(), cparams);
@@ -442,7 +442,7 @@ void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
     if (info.Length() < 1) return;
 
     bool enable = whisper_utils::getBool(info[0], false);
-    
+
     if (enable) {
         // If enabling logging and a callback is provided, set it up
         if (info.Length() >= 2 && info[1].IsFunction()) {
@@ -725,14 +725,14 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
 
 Napi::Value WhisperContext::AbortTranscribe(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    
+
     if (info.Length() < 1 || !info[0].IsNumber()) {
         Napi::TypeError::New(env, "Expected job ID").ThrowAsJavaScriptException();
         return env.Null();
     }
-    
+
     int jobId = info[0].As<Napi::Number>().Int32Value();
-    
+
     {
         std::lock_guard<std::mutex> lock(_cancelMutex);
         auto it = _cancelFlags.find(jobId);
@@ -740,7 +740,7 @@ Napi::Value WhisperContext::AbortTranscribe(const Napi::CallbackInfo& info) {
             it->second->store(true);
         }
     }
-    
+
     auto deferred = Napi::Promise::Deferred::New(env);
     deferred.Resolve(env.Undefined());
     return deferred.Promise();
@@ -928,7 +928,7 @@ void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
     if (info.Length() < 1) return;
 
     bool enable = whisper_utils::getBool(info[0], false);
-    
+
     if (enable) {
         // If enabling logging and a callback is provided, set it up
         if (info.Length() >= 2 && info[1].IsFunction()) {
