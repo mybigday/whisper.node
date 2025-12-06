@@ -1,13 +1,13 @@
 export interface NativeContextOptions {
-  filePath: string,
-  useFlashAttn?: boolean,
-  useGpu?: boolean,
+  filePath: string
+  useFlashAttn?: boolean
+  useGpu?: boolean
 }
 
 export interface NativeVadContextOptions {
-  filePath: string,
-  useGpu?: boolean,
-  nThreads?: number,
+  filePath: string
+  useGpu?: boolean
+  nThreads?: number
 }
 
 export interface TranscribeOptions {
@@ -56,17 +56,17 @@ export interface TranscribeResult {
 
 export interface VadOptions {
   /** Probability threshold to consider as speech (Default: 0.5) */
-  threshold?: number,
+  threshold?: number
   /** Min duration for a valid speech segment in ms (Default: 250) */
-  minSpeechDurationMs?: number,
+  minSpeechDurationMs?: number
   /** Min silence duration to consider speech as ended in ms (Default: 100) */
-  minSilenceDurationMs?: number,
+  minSilenceDurationMs?: number
   /** Max duration of a speech segment before forcing a new segment in seconds (Default: 30) */
-  maxSpeechDurationS?: number,
+  maxSpeechDurationS?: number
   /** Padding added before and after speech segments in ms (Default: 30) */
-  speechPadMs?: number,
+  speechPadMs?: number
   /** Overlap in seconds when copying audio samples from speech segment (Default: 0.1) */
-  samplesOverlap?: number,
+  samplesOverlap?: number
 }
 
 export interface VadSegment {
@@ -109,7 +109,7 @@ export interface WhisperContext {
   bench(nThreads: number): Promise<BenchResult>
   release(): Promise<void>
   getModelInfo(): object
-  
+
   // static methods
   toggleNativeLog(
     enable: boolean,
@@ -120,14 +120,17 @@ export interface WhisperContext {
 export interface WhisperVadContext {
   new (options: NativeVadContextOptions): WhisperVadContext
   detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
-  detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadSegment[]>
+  detectSpeechFile(
+    filePath: string,
+    options?: VadOptions,
+  ): Promise<VadSegment[]>
   detectSpeechData(
     audioData: ArrayBuffer,
     options?: VadOptions,
   ): Promise<VadSegment[]>
   release(): Promise<void>
   getModelInfo(): object
-  
+
   // static methods
   toggleNativeLog(
     enable: boolean,
@@ -160,8 +163,25 @@ const loadPlatformPackage = async (
 }
 
 export const loadModule = async (variant?: LibVariant): Promise<Module> => {
-  // Try to load the requested variant
-  let module = await loadPlatformPackage(getPlatformPackageName(variant))
+  const packageName = getPlatformPackageName(variant)
+
+  // Set ADSP_LIBRARY_PATH for load HTP libs
+  if (variant === 'snapdragon') {
+    const adspLibraryPath = process.env.ADSP_LIBRARY_PATH
+    if (!adspLibraryPath) {
+      try {
+        process.env.ADSP_LIBRARY_PATH = path.dirname(
+          require.resolve(packageName),
+        )
+      } catch {
+        /* no-op */
+      }
+    }
+    const nDev = process.env.GGML_HEXAGON_NDEV
+    if (!nDev) process.env.GGML_HEXAGON_NDEV = '16'
+  }
+
+  let module = await loadPlatformPackage(packageName)
   if (module) {
     return module
   }
