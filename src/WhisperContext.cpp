@@ -377,11 +377,19 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
 
     _sess = std::make_shared<WhisperSession>(modelPath, ctx);
 
+    // Initialize and attach threadpool
+    int n_threads = std::min(4, (int)std::thread::hardware_concurrency());
+    if (options.Has("nThreads") && options.Get("nThreads").IsNumber()) {
+        n_threads = options.Get("nThreads").As<Napi::Number>().Int32Value();
+    }
+    _sess->initThreadpool(n_threads);
+
     // Build metadata
     _meta = Napi::Object::New(env);
     _meta.Set("filePath", modelPath);
     _meta.Set("useGpu", useGpu);
     _meta.Set("useFlashAttn", useFlashAttn);
+    _meta.Set("nThreads", n_threads);
 }
 
 WhisperContext::~WhisperContext() {

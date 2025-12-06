@@ -1,6 +1,7 @@
 #include "common.hpp"
 #include "whisper.h"
 #include "common-whisper.h"
+#include "ggml-cpu.h"
 #include <iostream>
 #include <cstdarg>
 #include <string>
@@ -36,9 +37,50 @@ WhisperSession::WhisperSession(const std::string& modelPath, whisper_context* co
 }
 
 WhisperSession::~WhisperSession() {
+    freeThreadpool();
     if (ctx) {
         whisper_free(ctx);
         ctx = nullptr;
+    }
+}
+
+void WhisperSession::initThreadpool(int n_threads) {
+    if (!ctx) return;
+
+    auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    if (!cpu_dev) return;
+
+    auto * reg = ggml_backend_dev_backend_reg(cpu_dev);
+    if (!reg) return;
+
+    auto * ggml_threadpool_new_fn = (decltype(ggml_threadpool_new) *) ggml_backend_reg_get_proc_address(reg, "ggml_threadpool_new");
+    if (!ggml_threadpool_new_fn) return;
+
+    struct ggml_threadpool_params tpp = ggml_threadpool_params_default(n_threads);
+    threadpool = ggml_threadpool_new_fn(&tpp);
+
+    if (threadpool) {
+        whisper_attach_threadpool(ctx, threadpool, threadpool_batch);
+    }
+}
+
+void WhisperSession::freeThreadpool() {
+    auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    if (!cpu_dev) return;
+
+    auto * reg = ggml_backend_dev_backend_reg(cpu_dev);
+    if (!reg) return;
+
+    auto * ggml_threadpool_free_fn = (decltype(ggml_threadpool_free) *) ggml_backend_reg_get_proc_address(reg, "ggml_threadpool_free");
+    if (!ggml_threadpool_free_fn) return;
+
+    if (threadpool) {
+        ggml_threadpool_free_fn(threadpool);
+        threadpool = nullptr;
+    }
+    if (threadpool_batch) {
+        ggml_threadpool_free_fn(threadpool_batch);
+        threadpool_batch = nullptr;
     }
 }
 
