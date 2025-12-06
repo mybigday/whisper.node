@@ -31,10 +31,14 @@ async function main() {
   console.log(`Model: ${MODEL_PATH}`)
 
   // Initialize whisper context
-  const context = await initWhisper({
-    filePath: MODEL_PATH,
-    useGpu: true, // Set to false if GPU is not available
-  })
+  const context = await initWhisper(
+    {
+      filePath: MODEL_PATH,
+      useGpu: true, // Set to false if GPU is not available
+      // useFlashAttn: true, // Recommend for GPU
+    },
+    process.env.WHISPER_LIB_VARIANT, // 'default' | 'vulkan' | 'cuda' | 'snapdragon'
+  )
 
   console.log('Model loaded successfully!')
   console.log()
