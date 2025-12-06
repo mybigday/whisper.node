@@ -1,3 +1,5 @@
+import path from 'path'
+
 export interface NativeContextOptions {
   filePath: string
   useFlashAttn?: boolean
