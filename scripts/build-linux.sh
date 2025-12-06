@@ -82,10 +82,10 @@ else
       --CDCLANG_USE_GOMP=ON \
       --CDGGML_NATIVE=OFF \
       --CDGGML_OPENMP=0 \
-      # --CDGGML_OPENCL=1 \
-      # --CDGGML_OPENCL_SMALL_ALLOC=ON \
-      # --CDGGML_OPENCL_USE_ADRENO_KERNELS=ON \
-      # --CDGGML_OPENCL_EMBED_KERNELS=ON \
+      --CDGGML_OPENCL=1 \
+      --CDGGML_OPENCL_SMALL_ALLOC=ON \
+      --CDGGML_OPENCL_USE_ADRENO_KERNELS=ON \
+      --CDGGML_OPENCL_EMBED_KERNELS=ON \
       --CDGGML_HEXAGON=1 \
       --CDHEXAGON_SDK_ROOT="$HEXAGON_SDK_ROOT" \
       --CDPREBUILT_LIB_DIR=UbuntuARM_aarch64 \
@@ -98,19 +98,19 @@ else
 
       ARGS+=( --CDCMAKE_TOOLCHAIN_FILE="$(realpath cmake/aarch64-linux-gnu.toolchain.cmake)" )
 
-      # # Try to find OpenCL library for arm64
-      # OPENCL_LIB_PATH=""
-      # if [ -f "externals/opencl-arm64/lib/libOpenCL.so" ]; then
-      #   OPENCL_LIB_PATH="$(realpath externals/opencl-arm64/lib/libOpenCL.so)"
-      # fi
+      # Try to find OpenCL library for arm64
+      OPENCL_LIB_PATH=""
+      if [ -f "externals/opencl-arm64/lib/libOpenCL.so" ]; then
+        OPENCL_LIB_PATH="$(realpath externals/opencl-arm64/lib/libOpenCL.so)"
+      fi
 
-      # # Build with toolchain
-      # if [ -n "$OPENCL_LIB_PATH" ]; then
-      #   ARGS+=(
-      #     --CDOpenCL_INCLUDE_DIR="$(realpath externals/OpenCL-Headers)" \
-      #     --CDOpenCL_LIBRARY="$OPENCL_LIB_PATH"
-      #   )
-      # fi
+      # Build with toolchain
+      if [ -n "$OPENCL_LIB_PATH" ]; then
+        ARGS+=(
+          --CDOpenCL_INCLUDE_DIR="$(realpath externals/OpenCL-Headers)" \
+          --CDOpenCL_LIBRARY="$OPENCL_LIB_PATH"
+        )
+      fi
     else
       ARGS=( -C "${ARGS[@]}" )
     fi
