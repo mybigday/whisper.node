@@ -40,6 +40,7 @@ else
   # default
   if [ $TARGET == "all" ] || [ $TARGET == "default" ]; then
     npx cmake-js rebuild -C --CDTO_PACKAGE=ON --CDCLANG_USE_GOMP=ON --CDGGML_NATIVE=OFF \
+      --CDGGML_OPENMP=0 \
       --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16
   fi
 
@@ -47,6 +48,7 @@ else
   if [ $TARGET == "all" ] || [ $TARGET == "vulkan" ]; then
     npx cmake-js rebuild -C --CDTO_PACKAGE=ON \
       --CDCLANG_USE_GOMP=ON \
+      --CDGGML_OPENMP=0 \
       --CDGGML_NATIVE=OFF \
       --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
       --CDGGML_VULKAN=1 \
@@ -58,6 +60,7 @@ else
   if [ $TARGET == "all" ] || [ $TARGET == "cuda" ]; then
     npx cmake-js rebuild -C --CDTO_PACKAGE=ON \
       --CDCLANG_USE_GOMP=ON \
+      --CDGGML_OPENMP=0 \
       --CDGGML_NATIVE=OFF \
       --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
       --CDGGML_CUDA=1 \
