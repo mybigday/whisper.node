@@ -158,6 +158,10 @@ protected:
 
         int result = whisper_full_parallel(session_->ctx, params_copy, audioData_.data(), audioData_.size(), nProcessors_);
 
+        if (result == 0) {
+            whisper_print_timings(session_->ctx);
+        }
+
         // Wait for all pending callbacks to complete before returning
         {
             std::unique_lock<std::mutex> lock(callbackCtx.callbackMutex);
