@@ -19,10 +19,14 @@ async function main() {
 
   // Initialize whisper context
   console.log('Loading model...')
-  const context = await initWhisper({
-    filePath: modelPath,
-    useGpu: true, // Set to false to benchmark CPU only
-  })
+  const context = await initWhisper(
+    {
+      filePath: modelPath,
+      useGpu: true, // Set to false to benchmark CPU only
+      // useFlashAttn: true, // Recommend for GPU
+    },
+    process.env.WHISPER_LIB_VARIANT, // 'default' | 'vulkan' | 'cuda' | 'snapdragon'
+  )
   console.log('Model loaded!')
   console.log()
 

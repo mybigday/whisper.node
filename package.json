@@ -57,6 +57,7 @@
     "@fugood/node-whisper-linux-arm64": "1.0.9",
     "@fugood/node-whisper-linux-arm64-vulkan": "1.0.9",
     "@fugood/node-whisper-linux-arm64-cuda": "1.0.9",
+    "@fugood/node-whisper-linux-arm64-snapdragon": "1.0.9",
     "@fugood/node-whisper-win32-x64": "1.0.9",
     "@fugood/node-whisper-win32-x64-vulkan": "1.0.9",
     "@fugood/node-whisper-win32-x64-cuda": "1.0.9",

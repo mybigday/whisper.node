@@ -9,6 +9,8 @@
 #include <functional>
 
 #include "whisper.h"
+#include "ggml.h"
+#include "ggml-backend.h"
 
 // Forward declarations
 struct whisper_context;
@@ -42,12 +44,22 @@ public:
     whisper_context* ctx;
     std::mutex mtx;
 
+    // Thread pool management
+    ggml_threadpool_t threadpool = nullptr;
+    ggml_threadpool_t threadpool_batch = nullptr;
+
     WhisperSession(const std::string& modelPath, whisper_context* context);
     ~WhisperSession();
+
+    // Initialize and attach threadpool to the whisper context
+    void initThreadpool(int n_threads);
 
     bool isValid() const;
     void lock();
     void unlock();
+
+private:
+    void freeThreadpool();
 };
 
 using WhisperSessionPtr = std::shared_ptr<WhisperSession>;
