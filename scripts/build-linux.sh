@@ -81,6 +81,7 @@ else
       --CDTO_PACKAGE=ON \
       --CDCLANG_USE_GOMP=ON \
       --CDGGML_NATIVE=OFF \
+      --CDGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16
       --CDGGML_OPENMP=0 \
       --CDGGML_OPENCL=1 \
       --CDGGML_OPENCL_SMALL_ALLOC=ON \
