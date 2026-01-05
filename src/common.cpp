@@ -117,10 +117,7 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
         auto key = propNames.Get(i).As<Napi::String>().Utf8Value();
         auto value = options.Get(key);
 
-        if (key == "language" && value.IsString()) {
-            std::string lang = value.As<Napi::String>().Utf8Value();
-            params.language = lang.c_str();
-        } else if (key == "translate" && value.IsBoolean()) {
+        if (key == "translate" && value.IsBoolean()) {
             params.translate = value.As<Napi::Boolean>().Value();
         } else if (key == "maxThreads" && value.IsNumber()) {
             params.n_threads = value.As<Napi::Number>().Int32Value();
@@ -146,10 +143,8 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
             params.beam_search.beam_size = value.As<Napi::Number>().Int32Value();
         } else if (key == "bestOf" && value.IsNumber()) {
             params.greedy.best_of = value.As<Napi::Number>().Int32Value();
-        } else if (key == "prompt" && value.IsString()) {
-            std::string prompt = value.As<Napi::String>().Utf8Value();
-            params.initial_prompt = prompt.c_str();
         }
+        // Note: language and prompt are handled in WhisperContext.cpp to ensure string lifetime
     }
 
     return params;

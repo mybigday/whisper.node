@@ -34,10 +34,20 @@ public:
         Napi::ThreadSafeFunction tsfnProgress = Napi::ThreadSafeFunction(),
         Napi::ThreadSafeFunction tsfnNewSegments = Napi::ThreadSafeFunction(),
         bool hasProgress = false,
-        bool hasNewSegments = false
+        bool hasNewSegments = false,
+        std::string language = "",
+        std::string prompt = ""
     ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), nProcessors_(nProcessors),
         cancelFlag_(cancelFlag), tsfnProgress_(tsfnProgress), tsfnNewSegments_(tsfnNewSegments),
-        hasProgress_(hasProgress), hasNewSegments_(hasNewSegments) {}
+        hasProgress_(hasProgress), hasNewSegments_(hasNewSegments), language_(language), prompt_(prompt) {
+            // Apply language and prompt from stored strings to ensure valid lifetime
+            if (!language_.empty()) {
+                params_.language = language_.c_str();
+            }
+            if (!prompt_.empty()) {
+                params_.initial_prompt = prompt_.c_str();
+            }
+        }
 
 protected:
     void Execute() override {
@@ -245,6 +255,8 @@ private:
     Napi::ThreadSafeFunction tsfnNewSegments_;
     bool hasProgress_;
     bool hasNewSegments_;
+    std::string language_;
+    std::string prompt_;
 };
 
 // Helper class for async VAD
@@ -570,7 +582,11 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments);
+        // Extract language and prompt for worker storage
+        std::string language = whisper_utils::getString(options.Get("language"));
+        std::string prompt = whisper_utils::getString(options.Get("prompt"));
+
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments, language, prompt);
         worker->Queue();
 
     } catch (const std::exception& e) {
@@ -680,7 +696,11 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
             }
         });
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments);
+        // Extract language and prompt for worker storage
+        std::string language = whisper_utils::getString(options.Get("language"));
+        std::string prompt = whisper_utils::getString(options.Get("prompt"));
+
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments, language, prompt);
         worker->Queue();
 
     } catch (const std::exception& e) {
