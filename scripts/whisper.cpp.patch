@@ -1,5 +1,5 @@
 diff --git a/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt b/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-index e52e050a..c1000c16 100644
+index 7622d0bf..d2edcfdd 100644
 --- a/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
 +++ b/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
 @@ -106,7 +106,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
