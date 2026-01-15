@@ -52,10 +52,12 @@ async function main() {
       // On Windows, use .cmd scripts
       await runCommand('download-ggml-model.cmd', ['tiny.en'], modelsDir)
       await runCommand('download-vad-model.cmd', ['silero-v5.1.2'], modelsDir)
+      await runCommand('download-vad-model.cmd', ['silero-v6.2.0'], modelsDir)
     } else {
       // On Unix-like systems, use .sh scripts
       await runCommand('./download-ggml-model.sh', ['tiny.en'], modelsDir)
       await runCommand('./download-vad-model.sh', ['silero-v5.1.2'], modelsDir)
+      await runCommand('./download-vad-model.sh', ['silero-v6.2.0'], modelsDir)
     }
   } catch (error) {
     console.error('Error downloading models:', error.message)
