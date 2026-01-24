@@ -120,6 +120,7 @@ describe('Whisper transcription', () => {
       const result = await promise
 
       expect(result).toBeDefined()
+      expect(typeof result.language).toBe('string')
       expect(typeof result.result).toBe('string')
       expect(result.result.length).toBeGreaterThan(0)
       expect(Array.isArray(result.segments)).toBe(true)
@@ -128,6 +129,7 @@ describe('Whisper transcription', () => {
       const lowerText = result.result.toLowerCase()
       expect(lowerText).toMatch(/ask|not|what|your|country|can|do|for|you/)
 
+      console.log('Language:', result.language)
       console.log('Transcription result:', result.result)
 
       await context.release()

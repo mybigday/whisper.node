@@ -190,6 +190,11 @@ Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const s
     result.Set("result", text);
     result.Set("isAborted", aborted);
 
+    if (ctx) {
+        auto languageId = whisper_full_lang_id(ctx);
+        result.Set("language", whisper_lang_str(languageId));
+    }
+
     // Create segments array
     auto segments = Napi::Array::New(env);
     if (ctx && !aborted) {

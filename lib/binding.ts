@@ -45,6 +45,7 @@ export interface TranscribeNewSegmentsResult {
 }
 
 export interface TranscribeResult {
+  language?: string
   result: string
   segments: Array<{
     text: string
