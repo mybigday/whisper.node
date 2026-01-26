@@ -1,6 +1,6 @@
 {
   "name": "@fugood/node-whisper-darwin-arm64",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Native module for An another Node binding of whisper.cpp (darwin-arm64)",
   "main": "index.node",
   "os": [
