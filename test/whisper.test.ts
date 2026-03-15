@@ -111,10 +111,14 @@ describe('Whisper transcription', () => {
         useGpu: false,
       })
 
+      let lastSegment = undefined
       const { promise } = context.transcribeData(audioBuffer, {
         language: 'en',
         temperature: 0.0,
         nProcessors: 1,
+        onNewSegments: (seg) => {
+          lastSegment = seg
+        },
       })
 
       const result = await promise
@@ -124,6 +128,7 @@ describe('Whisper transcription', () => {
       expect(typeof result.result).toBe('string')
       expect(result.result.length).toBeGreaterThan(0)
       expect(Array.isArray(result.segments)).toBe(true)
+      expect(lastSegment).toBeDefined()
 
       // JFK sample should contain recognizable words
       const lowerText = result.result.toLowerCase()
