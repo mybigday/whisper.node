@@ -2,19 +2,6 @@ const path = require('path');
 
 const validAccelerators = process.platform === 'darwin' ? [] : ['vulkan', 'cuda'];
 
-// macOS deployment target
-//
-// Keep this out of GitHub Actions workflows so local builds and CI behave the same.
-// Default to 15.0 for Xcode 26+ compatibility, but allow callers to override.
-if (process.platform === 'darwin') {
-  if (!process.env.MACOSX_DEPLOYMENT_TARGET) {
-    process.env.MACOSX_DEPLOYMENT_TARGET = '15.0'
-  }
-  if (!process.env.CMAKE_OSX_DEPLOYMENT_TARGET) {
-    process.env.CMAKE_OSX_DEPLOYMENT_TARGET = process.env.MACOSX_DEPLOYMENT_TARGET
-  }
-}
-
 const accelerator = process.env.npm_config_accelerator || '';
 
 if (process.env.npm_config_build_from_source) {
