@@ -20,6 +20,11 @@ jobs:
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: '26.2'
+    - name: Set macOS deployment target
+      if: runner.os == 'macOS'
+      run: |
+        echo "MACOSX_DEPLOYMENT_TARGET=15.0" >> $GITHUB_ENV
+        echo "CMAKE_OSX_DEPLOYMENT_TARGET=15.0" >> $GITHUB_ENV
     - name: Install LLVM and Clang
       if: matrix.os == 'ubuntu-latest'
       run: |
