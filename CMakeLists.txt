@@ -120,6 +120,16 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT DEFINED GGML_OPENMP OR GGML_O
 endif()
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
+
+# Ensure ggml/Metal kernel compilation uses the same deployment target as the rest of the build.
+# whisper.cpp's ggml-metal backend supports -mmacosx-version-min via GGML_METAL_MACOSX_VERSION_MIN.
+if(APPLE AND NOT DEFINED GGML_METAL_MACOSX_VERSION_MIN)
+  if(DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(GGML_METAL_MACOSX_VERSION_MIN "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+  elseif(DEFINED ENV{MACOSX_DEPLOYMENT_TARGET})
+    set(GGML_METAL_MACOSX_VERSION_MIN "$ENV{MACOSX_DEPLOYMENT_TARGET}")
+  endif()
+endif()
 add_subdirectory("whisper.cpp")
 
 if (NOT GGML_VULKAN AND NOT GGML_CUDA AND NOT GGML_METAL AND NOT GGML_CLBLAST)
