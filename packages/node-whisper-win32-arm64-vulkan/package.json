@@ -1,6 +1,6 @@
 {
   "name": "@fugood/node-whisper-win32-arm64-vulkan",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Native module for An another Node binding of whisper.cpp (win32-arm64-vulkan)",
   "main": "index.node",
   "os": [
