@@ -1,8 +1,8 @@
 diff --git a/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt b/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-index 7622d0bf..d2edcfdd 100644
+index c1c225f0..9a187f11 100644
 --- a/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
 +++ b/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-@@ -106,7 +106,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
+@@ -111,7 +111,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
              )
  
          if (MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
@@ -12,7 +12,7 @@ index 7622d0bf..d2edcfdd 100644
              check_cxx_compiler_flag(-mfp16-format=ieee GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E)
              if (NOT "${GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E}" STREQUAL "")
 diff --git a/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt b/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
-index de01336c..29b1a043 100644
+index 715a263a..bd6c5a01 100644
 --- a/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
 +++ b/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
 @@ -121,7 +121,7 @@ if (Vulkan_FOUND)
