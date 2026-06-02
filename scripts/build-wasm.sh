@@ -5,7 +5,7 @@ set -euo pipefail
 BUILD_DIR=${BUILD_DIR:-build/wasm}
 WEBGPU=${WEBGPU:-ON}
 WEBGPU_JSPI=${WEBGPU_JSPI:-OFF}
-SINGLE_FILE=${SINGLE_FILE:-ON}
+SINGLE_FILE=${SINGLE_FILE:-OFF}
 BUILD_TYPE=${BUILD_TYPE:-Release}
 
 while [[ "$#" -gt 0 ]]; do

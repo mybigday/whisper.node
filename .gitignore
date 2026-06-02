@@ -1,6 +1,7 @@
 *.js
 !packages/node-whisper-wasm/index.js
 !packages/node-whisper-wasm/worker.js
+packages/node-whisper-wasm/whisper-node.wasm
 .DS_Store
 *.log
 node_modules/

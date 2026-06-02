@@ -31,3 +31,10 @@ when serving the package files from custom URLs. Set `useGpu: true` only with a
 package built using `GGML_WEBGPU=ON` and a browser that exposes `navigator.gpu`.
 VAD currently falls back to CPU in the browser package because the Silero VAD
 graph hits unsupported WebGPU ops.
+
+The default build emits `whisper-node.js` and `whisper-node.wasm`. Use
+`bash scripts/build-wasm.sh --single-file` only when you want the WASM binary
+embedded into `whisper-node.js`. Modern Emscripten embeds the pthread worker
+bootstrap in the main JS file, so a separate `whisper-node.worker.js` is not
+expected. The package worker that keeps UI work off the main thread is
+`worker.js`.

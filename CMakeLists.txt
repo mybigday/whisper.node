@@ -7,7 +7,7 @@ project (index)
 set(CMAKE_CXX_STANDARD 17)
 
 option(WHISPER_NODE_WASM "Build the browser WASM package" OFF)
-option(WHISPER_NODE_WASM_SINGLE_FILE "Embed WASM into the generated browser JS" ON)
+option(WHISPER_NODE_WASM_SINGLE_FILE "Embed WASM into the generated browser JS" OFF)
 
 execute_process(
   COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch

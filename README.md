@@ -143,8 +143,13 @@ npm run build-wasm
 ```
 
 `npm run build-wasm` enables `GGML_WEBGPU=ON` by default. Use
-`bash scripts/build-wasm.sh --no-webgpu` for a CPU-only WASM build. A local
-smoke page is available after building:
+`bash scripts/build-wasm.sh --no-webgpu` for a CPU-only WASM build. The default
+build emits `whisper-node.js` and `whisper-node.wasm`; pass `--single-file` only
+when you want the WASM binary embedded into `whisper-node.js`. Modern Emscripten
+embeds the pthread worker bootstrap in the main JS file, so a separate
+`whisper-node.worker.js` is not expected. The browser package also ships its own
+`worker.js` wrapper for non-blocking model load and inference. A local smoke page
+is available after building:
 
 ```sh
 node examples/wasm/server.mjs
