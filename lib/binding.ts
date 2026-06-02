@@ -1,13 +1,17 @@
 export interface NativeContextOptions {
   filePath: string,
+  modelUrl?: string,
   useFlashAttn?: boolean,
   useGpu?: boolean,
+  maxModelBytes?: number,
 }
 
 export interface NativeVadContextOptions {
   filePath: string,
+  modelUrl?: string,
   useGpu?: boolean,
   nThreads?: number,
+  maxModelBytes?: number,
 }
 
 export interface TranscribeOptions {
@@ -160,7 +164,32 @@ const loadPlatformPackage = async (
   }
 }
 
+const isNodeRuntime = (): boolean => {
+  return (
+    typeof process !== 'undefined' &&
+    !!process.versions &&
+    !!process.versions.node
+  )
+}
+
+const normalizeLoadedModule = (module: unknown): Module => {
+  const maybeModule = module as Module & { default?: Module }
+  return maybeModule.WhisperContext ? maybeModule : (maybeModule.default as Module)
+}
+
+const loadWasmPackage = async (): Promise<Module> => {
+  const module = await import('@fugood/node-whisper-wasm')
+  return normalizeLoadedModule(module)
+}
+
 export const loadModule = async (variant?: LibVariant): Promise<Module> => {
+  if (!isNodeRuntime()) {
+    if (variant && variant !== 'default') {
+      console.warn(`Browser WASM build ignores native variant "${variant}"`)
+    }
+    return loadWasmPackage()
+  }
+
   // Try to load the requested variant
   let module = await loadPlatformPackage(getPlatformPackageName(variant))
   if (module) {

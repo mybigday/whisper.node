@@ -6,10 +6,100 @@ project (index)
 
 set(CMAKE_CXX_STANDARD 17)
 
-execute_process(COMMAND
-  git apply ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+option(WHISPER_NODE_WASM "Build the browser WASM package" OFF)
+option(WHISPER_NODE_WASM_SINGLE_FILE "Embed WASM into the generated browser JS" ON)
+
+execute_process(
+  COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  RESULT_VARIABLE WHISPER_PATCH_CAN_APPLY
+  OUTPUT_QUIET
+  ERROR_QUIET
 )
+
+if (WHISPER_PATCH_CAN_APPLY EQUAL 0)
+  execute_process(
+    COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE WHISPER_PATCH_APPLY_RESULT
+  )
+
+  if (NOT WHISPER_PATCH_APPLY_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to apply scripts/whisper.cpp.patch")
+  endif()
+else()
+  execute_process(
+    COMMAND git apply --reverse --check ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    RESULT_VARIABLE WHISPER_PATCH_ALREADY_APPLIED
+    OUTPUT_QUIET
+    ERROR_QUIET
+  )
+
+  if (NOT WHISPER_PATCH_ALREADY_APPLIED EQUAL 0)
+    message(FATAL_ERROR "scripts/whisper.cpp.patch cannot be applied to the current whisper.cpp checkout")
+  endif()
+endif()
+
+if (WHISPER_NODE_WASM)
+  if (NOT EMSCRIPTEN)
+    message(FATAL_ERROR "WHISPER_NODE_WASM=ON requires configuring with Emscripten, for example: emcmake cmake -S . -B build/wasm -DWHISPER_NODE_WASM=ON")
+  endif()
+
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
+  set(CMAKE_SYSTEM_PROCESSOR wasm32 CACHE STRING "Use ggml WASM CPU kernels" FORCE)
+  set(GGML_NATIVE OFF CACHE BOOL "Disable native CPU flags for portable WASM" FORCE)
+  set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP for WASM" FORCE)
+
+  add_subdirectory("whisper.cpp")
+
+  set(WASM_TARGET whisper-node-wasm)
+  set(WASM_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/packages/node-whisper-wasm)
+
+  add_executable(${WASM_TARGET}
+    "src/wasm/emscripten.cpp"
+  )
+
+  target_include_directories(${WASM_TARGET} PRIVATE
+    "whisper.cpp"
+    "whisper.cpp/include"
+    "whisper.cpp/src"
+    "whisper.cpp/ggml/include"
+  )
+
+  target_link_libraries(${WASM_TARGET} PRIVATE whisper)
+
+  target_compile_options(${WASM_TARGET} PRIVATE "-pthread")
+
+  set_target_properties(${WASM_TARGET} PROPERTIES
+    OUTPUT_NAME "whisper-node"
+    SUFFIX ".js"
+    RUNTIME_OUTPUT_DIRECTORY ${WASM_OUTPUT_DIR}
+  )
+
+  target_link_options(${WASM_TARGET} PRIVATE
+    "-pthread"
+    "--bind"
+    "-sMODULARIZE=1"
+    "-sEXPORT_NAME=createWhisperNodeModule"
+    "-sENVIRONMENT=web,worker"
+    "-sUSE_PTHREADS=1"
+    "-sPTHREAD_POOL_SIZE=8"
+    "-sPTHREAD_POOL_SIZE_STRICT=0"
+    "-sINITIAL_MEMORY=512MB"
+    "-sMAXIMUM_MEMORY=2000MB"
+    "-sALLOW_MEMORY_GROWTH=1"
+    "-sFORCE_FILESYSTEM=1"
+    "-sEXPORTED_RUNTIME_METHODS=['FS','HEAPU8']"
+    "-sEXIT_RUNTIME=0"
+  )
+
+  if (WHISPER_NODE_WASM_SINGLE_FILE)
+    target_link_options(${WASM_TARGET} PRIVATE "-sSINGLE_FILE=1")
+  endif()
+
+  return()
+endif()
 
 if(NOT DEFINED napi_build_version)
   set(napi_build_version 6)

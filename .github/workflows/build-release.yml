@@ -113,6 +113,12 @@ jobs:
             target: vulkan
             package: node-whisper-win32-arm64-vulkan
             toolchain: mingw-clang
+          # Browser WASM
+          - os: ubuntu-22.04
+            arch: wasm
+            container: ''
+            target: wasm
+            package: node-whisper-wasm
     steps:
       - name: Run this job?
         id: run
@@ -147,6 +153,10 @@ jobs:
         if: steps.run.outputs.should-run == 'true'
         with:
           node-version: 20
+      - uses: mymindstorm/setup-emsdk@v14
+        if: steps.run.outputs.should-run == 'true' && matrix.target == 'wasm'
+        with:
+          version: latest
       - name: Select Xcode 26.2
         if: steps.run.outputs.should-run == 'true' && matrix.os == 'macos-26'
         uses: maxim-lobanov/setup-xcode@v1
@@ -170,8 +180,11 @@ jobs:
           optional_components: com.lunarg.vulkan.arm64
           cache: true
           stripdown: true
+      - name: Build (WASM)
+        if: steps.run.outputs.should-run == 'true' && matrix.target == 'wasm'
+        run: bash ./scripts/build-wasm.sh --webgpu
       - name: Prepare & build (Linux)
-        if: steps.run.outputs.should-run == 'true' && runner.os == 'Linux'
+        if: steps.run.outputs.should-run == 'true' && runner.os == 'Linux' && matrix.target != 'wasm'
         run: |
           bash ./scripts/prepare-linux.sh -a ${{ matrix.arch }} -t ${{ matrix.target }}
           bash ./scripts/build-linux.sh -a ${{ matrix.arch }} -t ${{ matrix.target }}

@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <thread>
 
 // Global logging state
 whisper_log_callback g_log_callback = nullptr;
@@ -111,6 +112,8 @@ bool getBool(const Napi::Value& value, bool defaultValue) {
 
 whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    const int hardware = static_cast<int>(std::thread::hardware_concurrency());
+    params.n_threads = std::max(1, std::min(8, hardware == 0 ? 1 : hardware));
 
     auto propNames = options.GetPropertyNames();
     for (uint32_t i = 0; i < propNames.Length(); i++) {

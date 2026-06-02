@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>whisper.node WASM smoke test</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        background: Canvas;
+        color: CanvasText;
+      }
+
+      main {
+        display: grid;
+        gap: 16px;
+        max-width: 980px;
+        padding: 24px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 13px;
+      }
+
+      input {
+        box-sizing: border-box;
+        width: 100%;
+        padding: 8px 10px;
+        font: inherit;
+      }
+
+      input[type="checkbox"] {
+        width: auto;
+        padding: 0;
+      }
+
+      button {
+        width: fit-content;
+        padding: 8px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      pre {
+        min-height: 220px;
+        overflow: auto;
+        padding: 12px;
+        border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>whisper.node WASM smoke test</h1>
+
+      <label>
+        Whisper model URL
+        <input
+          id="whisper-model"
+          value="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+        />
+      </label>
+
+      <label>
+        VAD model URL
+        <input
+          id="vad-model"
+          value="https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin"
+        />
+      </label>
+
+      <label>
+        Audio URL
+        <input
+          id="audio-url"
+          value="https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav"
+        />
+      </label>
+
+      <label>
+        Max model bytes
+        <input id="max-model-bytes" type="number" value="1610612736" />
+      </label>
+
+      <label>
+        Max threads
+        <input id="max-threads" min="1" step="1" type="number" />
+      </label>
+
+      <label>
+        Language
+        <input id="language" value="en" />
+      </label>
+
+      <label>
+        <input id="use-gpu" type="checkbox" />
+        Use WebGPU
+      </label>
+
+      <button id="run">Run</button>
+      <p id="tick">UI tick 0</p>
+      <pre id="log"></pre>
+    </main>
+
+    <script src="../../packages/node-whisper-wasm/whisper-node.js"></script>
+    <script src="../../packages/node-whisper-wasm/index.js"></script>
+    <script>
+      const log = document.getElementById('log')
+      const run = document.getElementById('run')
+      const tick = document.getElementById('tick')
+      const maxThreadsInput = document.getElementById('max-threads')
+      const languageInput = document.getElementById('language')
+      let tickCount = 0
+
+      maxThreadsInput.value = String(
+        Math.max(1, Math.min(8, navigator.hardwareConcurrency || 1)),
+      )
+
+      setInterval(() => {
+        tickCount += 1
+        tick.textContent = `UI tick ${tickCount}`
+      }, 100)
+
+      function write(message, data) {
+        log.textContent += `${new Date().toISOString()} ${message}`
+        if (data !== undefined) {
+          log.textContent += `\n${JSON.stringify(data, null, 2)}`
+        }
+        log.textContent += '\n\n'
+      }
+
+      WhisperNodeWasm.addNativeLogListener((level, text) => {
+        write(`[${level}] ${text}`)
+      })
+
+      function readAscii(view, offset, length) {
+        let value = ''
+        for (let index = 0; index < length; index += 1) {
+          value += String.fromCharCode(view.getUint8(offset + index))
+        }
+        return value
+      }
+
+      function readInt24(view, offset) {
+        const b0 = view.getUint8(offset)
+        const b1 = view.getUint8(offset + 1)
+        const b2 = view.getUint8(offset + 2)
+        const value = b0 | (b1 << 8) | (b2 << 16)
+        return value & 0x800000 ? value | 0xff000000 : value
+      }
+
+      function resampleLinear(input, sourceRate, targetRate) {
+        if (sourceRate === targetRate || input.length === 0) {
+          return input
+        }
+
+        const outputLength = Math.max(1, Math.round((input.length * targetRate) / sourceRate))
+        const output = new Float32Array(outputLength)
+        const ratio = sourceRate / targetRate
+
+        for (let index = 0; index < outputLength; index += 1) {
+          const position = index * ratio
+          const left = Math.floor(position)
+          const right = Math.min(left + 1, input.length - 1)
+          const weight = position - left
+          output[index] = input[left] * (1 - weight) + input[right] * weight
+        }
+
+        return output
+      }
+
+      function decodeWav(buffer) {
+        if (buffer.byteLength < 44) {
+          return null
+        }
+
+        const view = new DataView(buffer)
+        if (readAscii(view, 0, 4) !== 'RIFF' || readAscii(view, 8, 4) !== 'WAVE') {
+          return null
+        }
+
+        let offset = 12
+        let format = null
+        let dataOffset = 0
+        let dataSize = 0
+
+        while (offset + 8 <= view.byteLength) {
+          const chunkId = readAscii(view, offset, 4)
+          const chunkSize = view.getUint32(offset + 4, true)
+          offset += 8
+
+          if (chunkId === 'fmt ') {
+            format = {
+              audioFormat: view.getUint16(offset, true),
+              channels: view.getUint16(offset + 2, true),
+              sampleRate: view.getUint32(offset + 4, true),
+              blockAlign: view.getUint16(offset + 12, true),
+              bitsPerSample: view.getUint16(offset + 14, true),
+            }
+          } else if (chunkId === 'data') {
+            dataOffset = offset
+            dataSize = chunkSize
+            break
+          }
+
+          offset += chunkSize + (chunkSize % 2)
+        }
+
+        if (!format || !dataOffset || !dataSize) {
+          return null
+        }
+
+        const bytesPerSample = format.bitsPerSample / 8
+        const frameCount = Math.floor(dataSize / format.blockAlign)
+        const output = new Float32Array(frameCount)
+
+        for (let frame = 0; frame < frameCount; frame += 1) {
+          let sum = 0
+          for (let channel = 0; channel < format.channels; channel += 1) {
+            const sampleOffset =
+              dataOffset + frame * format.blockAlign + channel * bytesPerSample
+            let sample = 0
+
+            if (format.audioFormat === 1) {
+              if (format.bitsPerSample === 8) {
+                sample = (view.getUint8(sampleOffset) - 128) / 128
+              } else if (format.bitsPerSample === 16) {
+                sample = view.getInt16(sampleOffset, true) / 32768
+              } else if (format.bitsPerSample === 24) {
+                sample = readInt24(view, sampleOffset) / 8388608
+              } else if (format.bitsPerSample === 32) {
+                sample = view.getInt32(sampleOffset, true) / 2147483648
+              } else {
+                throw new Error(`Unsupported PCM WAV bit depth: ${format.bitsPerSample}`)
+              }
+            } else if (format.audioFormat === 3 && format.bitsPerSample === 32) {
+              sample = view.getFloat32(sampleOffset, true)
+            } else {
+              throw new Error(`Unsupported WAV format: ${format.audioFormat}`)
+            }
+
+            sum += sample
+          }
+          output[frame] = sum / format.channels
+        }
+
+        return resampleLinear(output, format.sampleRate, 16000)
+      }
+
+      function mixAudioBuffer(audioBuffer) {
+        const output = new Float32Array(audioBuffer.length)
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
+          const channelData = audioBuffer.getChannelData(channel)
+          for (let index = 0; index < output.length; index += 1) {
+            output[index] += channelData[index] / audioBuffer.numberOfChannels
+          }
+        }
+        return resampleLinear(output, audioBuffer.sampleRate, 16000)
+      }
+
+      async function decodeAudioData(buffer) {
+        const wav = decodeWav(buffer)
+        if (wav) {
+          return wav
+        }
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext
+        if (!AudioContext) {
+          throw new Error('AudioContext is required for non-WAV audio URLs')
+        }
+
+        const audioContext = new AudioContext()
+        try {
+          const decoded = await audioContext.decodeAudioData(buffer.slice(0))
+          return mixAudioBuffer(decoded)
+        } finally {
+          if (typeof audioContext.close === 'function') {
+            audioContext.close()
+          }
+        }
+      }
+
+      async function loadAudioData(url) {
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch audio: HTTP ${response.status}`)
+        }
+        return decodeAudioData(await response.arrayBuffer())
+      }
+
+      run.addEventListener('click', async () => {
+        run.disabled = true
+        log.textContent = ''
+
+        const whisperModel = document.getElementById('whisper-model').value
+        const vadModel = document.getElementById('vad-model').value
+        const audioUrl = document.getElementById('audio-url').value
+        const maxModelBytes = Number(document.getElementById('max-model-bytes').value)
+        const maxThreads = Math.max(1, Number(maxThreadsInput.value) || 1)
+        const language = languageInput.value.trim() || 'en'
+        const useGpu = document.getElementById('use-gpu').checked
+
+        try {
+          if (!crossOriginIsolated) {
+            write('crossOriginIsolated is false; serve this page with COOP/COEP headers.')
+          }
+
+          await WhisperNodeWasm.toggleNativeLog(true)
+
+          const toLocalUrl = (url) => `/proxy?url=${encodeURIComponent(url)}`
+
+          write('Loading whisper model')
+          const whisper = await WhisperNodeWasm.initWhisper({
+            filePath: toLocalUrl(whisperModel),
+            maxModelBytes,
+            useGpu,
+          })
+
+          write('Loading audio data')
+          const audioData = await loadAudioData(toLocalUrl(audioUrl))
+
+          write('Transcribing audio data')
+          const { promise } = whisper.transcribeData(audioData, {
+            language,
+            maxThreads,
+            temperature: 0,
+            onProgress: (progress) => write(`progress ${progress}%`),
+          })
+          const transcription = await promise
+          write('Transcription result', transcription)
+          await whisper.release()
+
+          write('Loading VAD model')
+          const vad = await WhisperNodeWasm.initWhisperVad({
+            filePath: toLocalUrl(vadModel),
+            maxModelBytes,
+            useGpu,
+            nThreads: 2,
+          })
+
+          write('Detecting speech')
+          const segments = await vad.detectSpeechFile(toLocalUrl(audioUrl))
+          write('VAD result', segments)
+          await vad.release()
+        } catch (error) {
+          write(error && error.stack ? error.stack : String(error))
+        } finally {
+          run.disabled = false
+        }
+      })
+    </script>
+  </body>
+</html>
