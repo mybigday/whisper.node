@@ -1,0 +1,47 @@
+{
+  "name": "@fugood/node-whisper-wasm",
+  "version": "1.0.19",
+  "description": "Browser WASM module for whisper.node",
+  "main": "index.js",
+  "browser": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mybigday/whisper.node.git"
+  },
+  "keywords": [
+    "whisper",
+    "speech-recognition",
+    "audio",
+    "transcription",
+    "voice-activity-detection",
+    "vad",
+    "wasm",
+    "webgpu",
+    "browser",
+    "whisper.cpp"
+  ],
+  "authors": [
+    "ggml / whisper.cpp contributors",
+    "Hans <hans.chen@bricks.tools>",
+    "Jhen <developer@jhen.me>"
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mybigday/whisper.node/issues"
+  },
+  "homepage": "https://github.com/mybigday/whisper.node#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "whisper-node.js",
+    "worker.js",
+    "whisper-node.wasm",
+    "whisper-node.worker.js"
+  ]
+}

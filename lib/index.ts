@@ -95,7 +95,9 @@ export const initWhisper = async (
   variant?: LibVariant
 ): Promise<WhisperContext> => {
   const module = await loadWhisperModule(variant);
-  return new module.WhisperContext(options);
+  return await (new module.WhisperContext(options) as
+    | WhisperContext
+    | Promise<WhisperContext>);
 };
 
 /**
@@ -109,7 +111,9 @@ export const initWhisperVad = async (
   variant?: LibVariant
 ): Promise<WhisperVadContext> => {
   const module = await loadWhisperModule(variant);
-  return new module.WhisperVadContext(options);
+  return await (new module.WhisperVadContext(options) as
+    | WhisperVadContext
+    | Promise<WhisperVadContext>);
 };
 
 // Default export

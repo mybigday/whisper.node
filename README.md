@@ -22,6 +22,9 @@ An another Node binding of [whisper.cpp](https://github.com/ggml-org/whisper.cpp
   - CPU
   - GPU acceleration via Vulkan
   - GPU acceleration via CUDA
+- Web
+  - WASM
+  - Optional WebGPU through `ggml-webgpu` when the WASM package is built with `GGML_WEBGPU=ON`
 
 ## Installation
 
@@ -87,6 +90,69 @@ await vadContext.release()
 ```
 
 **Note**: Audio data should be 16-bit PCM, mono, 16kHz format. The library expects ArrayBuffer containing raw audio data.
+
+### Browser WASM
+
+The browser package keeps the same promise-based `initWhisper` and
+`initWhisperVad` entry points. In browsers, `filePath` is treated as a URL and
+the model is fetched into the WASM filesystem.
+
+```js
+import { initWhisper, initWhisperVad } from '@fugood/whisper.node'
+
+const whisper = await initWhisper({
+  filePath: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
+  maxModelBytes: 1536 * 1024 * 1024,
+  useGpu: false,
+})
+
+const { promise } = whisper.transcribeFile('https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav', {
+  language: 'en',
+  temperature: 0,
+})
+
+console.log(await promise)
+await whisper.release()
+
+const vad = await initWhisperVad({
+  filePath: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin',
+  useGpu: false,
+})
+console.log(await vad.detectSpeechFile('https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav'))
+await vad.release()
+```
+
+The WASM build uses pthreads, so the page must be cross-origin isolated
+(`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`) to expose `SharedArrayBuffer`.
+Oversized model downloads fail before loading into MEMFS. Firefox is capped at
+256 MiB by default; other browsers default to 75% of the configured WASM maximum
+memory. Pass `maxModelBytes` only when you know the target browser can allocate
+the model. Whisper transcription defaults to up to 8 threads based on browser
+hardware concurrency; pass `maxThreads` to override it. Browser pages run model
+loading, transcription, benchmarks, and VAD in a dedicated worker by default so
+the UI thread can keep rendering. Use `configureWasm({ worker: false })` only
+when you explicitly need the old in-thread runtime, or pass `workerUrl`,
+`indexScriptUrl`, and `runtimeScriptUrl` when serving the package files from
+custom URLs.
+
+Build the browser package with:
+
+```sh
+npm run build-wasm
+```
+
+`npm run build-wasm` enables `GGML_WEBGPU=ON` by default. Use
+`bash scripts/build-wasm.sh --no-webgpu` for a CPU-only WASM build. A local
+smoke page is available after building:
+
+```sh
+node examples/wasm/server.mjs
+```
+
+In the WASM package, `useGpu: true` enables WebGPU for whisper transcription
+when the browser supports `navigator.gpu`. VAD currently falls back to CPU in
+the browser package because the Silero VAD graph hits unsupported WebGPU ops.
 
 ## Lib Variants
 

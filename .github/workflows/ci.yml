@@ -34,3 +34,23 @@ jobs:
       run: npm install --omit=optional --build-from-source
     - name: Run test
       run: npm run test
+
+  wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: latest
+    - name: Install dependencies
+      run: npm install --omit=optional
+    - name: Build WASM package
+      run: npm run build-wasm
+    - name: Build TypeScript
+      run: npm run build-js
