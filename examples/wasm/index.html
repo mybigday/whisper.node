@@ -98,6 +98,11 @@
       </label>
 
       <label>
+        Language
+        <input id="language" value="en" />
+      </label>
+
+      <label>
         <input id="use-gpu" type="checkbox" />
         Use WebGPU
       </label>
@@ -114,6 +119,7 @@
       const run = document.getElementById('run')
       const tick = document.getElementById('tick')
       const maxThreadsInput = document.getElementById('max-threads')
+      const languageInput = document.getElementById('language')
       let tickCount = 0
 
       maxThreadsInput.value = String(
@@ -146,6 +152,7 @@
         const audioUrl = document.getElementById('audio-url').value
         const maxModelBytes = Number(document.getElementById('max-model-bytes').value)
         const maxThreads = Math.max(1, Number(maxThreadsInput.value) || 1)
+        const language = languageInput.value.trim() || 'en'
         const useGpu = document.getElementById('use-gpu').checked
 
         try {
@@ -166,7 +173,7 @@
 
           write('Transcribing audio')
           const { promise } = whisper.transcribeFile(toLocalUrl(audioUrl), {
-            language: 'en',
+            language,
             maxThreads,
             temperature: 0,
             onProgress: (progress) => write(`progress ${progress}%`),
