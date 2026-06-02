@@ -143,6 +143,161 @@
         write(`[${level}] ${text}`)
       })
 
+      function readAscii(view, offset, length) {
+        let value = ''
+        for (let index = 0; index < length; index += 1) {
+          value += String.fromCharCode(view.getUint8(offset + index))
+        }
+        return value
+      }
+
+      function readInt24(view, offset) {
+        const b0 = view.getUint8(offset)
+        const b1 = view.getUint8(offset + 1)
+        const b2 = view.getUint8(offset + 2)
+        const value = b0 | (b1 << 8) | (b2 << 16)
+        return value & 0x800000 ? value | 0xff000000 : value
+      }
+
+      function resampleLinear(input, sourceRate, targetRate) {
+        if (sourceRate === targetRate || input.length === 0) {
+          return input
+        }
+
+        const outputLength = Math.max(1, Math.round((input.length * targetRate) / sourceRate))
+        const output = new Float32Array(outputLength)
+        const ratio = sourceRate / targetRate
+
+        for (let index = 0; index < outputLength; index += 1) {
+          const position = index * ratio
+          const left = Math.floor(position)
+          const right = Math.min(left + 1, input.length - 1)
+          const weight = position - left
+          output[index] = input[left] * (1 - weight) + input[right] * weight
+        }
+
+        return output
+      }
+
+      function decodeWav(buffer) {
+        if (buffer.byteLength < 44) {
+          return null
+        }
+
+        const view = new DataView(buffer)
+        if (readAscii(view, 0, 4) !== 'RIFF' || readAscii(view, 8, 4) !== 'WAVE') {
+          return null
+        }
+
+        let offset = 12
+        let format = null
+        let dataOffset = 0
+        let dataSize = 0
+
+        while (offset + 8 <= view.byteLength) {
+          const chunkId = readAscii(view, offset, 4)
+          const chunkSize = view.getUint32(offset + 4, true)
+          offset += 8
+
+          if (chunkId === 'fmt ') {
+            format = {
+              audioFormat: view.getUint16(offset, true),
+              channels: view.getUint16(offset + 2, true),
+              sampleRate: view.getUint32(offset + 4, true),
+              blockAlign: view.getUint16(offset + 12, true),
+              bitsPerSample: view.getUint16(offset + 14, true),
+            }
+          } else if (chunkId === 'data') {
+            dataOffset = offset
+            dataSize = chunkSize
+            break
+          }
+
+          offset += chunkSize + (chunkSize % 2)
+        }
+
+        if (!format || !dataOffset || !dataSize) {
+          return null
+        }
+
+        const bytesPerSample = format.bitsPerSample / 8
+        const frameCount = Math.floor(dataSize / format.blockAlign)
+        const output = new Float32Array(frameCount)
+
+        for (let frame = 0; frame < frameCount; frame += 1) {
+          let sum = 0
+          for (let channel = 0; channel < format.channels; channel += 1) {
+            const sampleOffset =
+              dataOffset + frame * format.blockAlign + channel * bytesPerSample
+            let sample = 0
+
+            if (format.audioFormat === 1) {
+              if (format.bitsPerSample === 8) {
+                sample = (view.getUint8(sampleOffset) - 128) / 128
+              } else if (format.bitsPerSample === 16) {
+                sample = view.getInt16(sampleOffset, true) / 32768
+              } else if (format.bitsPerSample === 24) {
+                sample = readInt24(view, sampleOffset) / 8388608
+              } else if (format.bitsPerSample === 32) {
+                sample = view.getInt32(sampleOffset, true) / 2147483648
+              } else {
+                throw new Error(`Unsupported PCM WAV bit depth: ${format.bitsPerSample}`)
+              }
+            } else if (format.audioFormat === 3 && format.bitsPerSample === 32) {
+              sample = view.getFloat32(sampleOffset, true)
+            } else {
+              throw new Error(`Unsupported WAV format: ${format.audioFormat}`)
+            }
+
+            sum += sample
+          }
+          output[frame] = sum / format.channels
+        }
+
+        return resampleLinear(output, format.sampleRate, 16000)
+      }
+
+      function mixAudioBuffer(audioBuffer) {
+        const output = new Float32Array(audioBuffer.length)
+        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
+          const channelData = audioBuffer.getChannelData(channel)
+          for (let index = 0; index < output.length; index += 1) {
+            output[index] += channelData[index] / audioBuffer.numberOfChannels
+          }
+        }
+        return resampleLinear(output, audioBuffer.sampleRate, 16000)
+      }
+
+      async function decodeAudioData(buffer) {
+        const wav = decodeWav(buffer)
+        if (wav) {
+          return wav
+        }
+
+        const AudioContext = window.AudioContext || window.webkitAudioContext
+        if (!AudioContext) {
+          throw new Error('AudioContext is required for non-WAV audio URLs')
+        }
+
+        const audioContext = new AudioContext()
+        try {
+          const decoded = await audioContext.decodeAudioData(buffer.slice(0))
+          return mixAudioBuffer(decoded)
+        } finally {
+          if (typeof audioContext.close === 'function') {
+            audioContext.close()
+          }
+        }
+      }
+
+      async function loadAudioData(url) {
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch audio: HTTP ${response.status}`)
+        }
+        return decodeAudioData(await response.arrayBuffer())
+      }
+
       run.addEventListener('click', async () => {
         run.disabled = true
         log.textContent = ''
@@ -171,8 +326,11 @@
             useGpu,
           })
 
-          write('Transcribing audio')
-          const { promise } = whisper.transcribeFile(toLocalUrl(audioUrl), {
+          write('Loading audio data')
+          const audioData = await loadAudioData(toLocalUrl(audioUrl))
+
+          write('Transcribing audio data')
+          const { promise } = whisper.transcribeData(audioData, {
             language,
             maxThreads,
             temperature: 0,
