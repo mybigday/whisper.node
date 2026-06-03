@@ -23,14 +23,18 @@ await whisper.release()
 The WASM build uses pthreads, so browsers must serve the page with COOP/COEP
 headers and expose `SharedArrayBuffer`. Whisper transcription defaults to up to
 8 threads based on browser hardware concurrency; pass `maxThreads` to override
-it. Browser pages run model loading, transcription, benchmarks, and VAD in a
-dedicated worker by default so the UI thread can keep rendering. Use
+it. Browser WASM clamps `maxThreads` to the compiled pool limit of 8. Browser
+pages run model loading, transcription, benchmarks, and VAD in a dedicated
+worker by default so the UI thread can keep rendering. Use
 `configureWasm({ worker: false })` only when you explicitly need the old
 in-thread runtime, or pass `workerUrl`, `indexScriptUrl`, and `runtimeScriptUrl`
-when serving the package files from custom URLs. Set `useGpu: true` only with a
-package built using `GGML_WEBGPU=ON` and a browser that exposes `navigator.gpu`.
-VAD currently falls back to CPU in the browser package because the Silero VAD
-graph hits unsupported WebGPU ops.
+when serving the package files from custom URLs. Model downloads are cached in
+browser Cache Storage by default. Pass `cacheModel: false` to disable persistent
+caching, `modelCacheName` to isolate the cache namespace, or `modelCacheKey`
+when the fetch URL is a proxy or signed URL but should reuse the same cached
+model. Set `useGpu: true` only with a package built using `GGML_WEBGPU=ON` and a
+browser that exposes `navigator.gpu`. VAD currently falls back to CPU in the
+browser package because the Silero VAD graph hits unsupported WebGPU ops.
 
 The default build emits `whisper-node.js` and `whisper-node.wasm`. Use
 `bash scripts/build-wasm.sh --single-file` only when you want the WASM binary

@@ -129,12 +129,16 @@ Oversized model downloads fail before loading into MEMFS. Firefox is capped at
 256 MiB by default; other browsers default to 75% of the configured WASM maximum
 memory. Pass `maxModelBytes` only when you know the target browser can allocate
 the model. Whisper transcription defaults to up to 8 threads based on browser
-hardware concurrency; pass `maxThreads` to override it. Browser pages run model
-loading, transcription, benchmarks, and VAD in a dedicated worker by default so
-the UI thread can keep rendering. Use `configureWasm({ worker: false })` only
-when you explicitly need the old in-thread runtime, or pass `workerUrl`,
-`indexScriptUrl`, and `runtimeScriptUrl` when serving the package files from
-custom URLs.
+hardware concurrency; pass `maxThreads` to override it. Browser WASM clamps
+`maxThreads` to the compiled pool limit of 8. Browser pages run model loading,
+transcription, benchmarks, and VAD in a dedicated worker by default so the UI
+thread can keep rendering. Use `configureWasm({ worker: false })` only when you
+explicitly need the old in-thread runtime, or pass `workerUrl`, `indexScriptUrl`,
+and `runtimeScriptUrl` when serving the package files from custom URLs. Model
+downloads are cached in browser Cache Storage by default. Pass
+`cacheModel: false` to disable persistent caching, `modelCacheName` to isolate
+the cache namespace, or `modelCacheKey` when the fetch URL is a proxy or signed
+URL but should reuse the same cached model.
 
 Build the browser package with:
 

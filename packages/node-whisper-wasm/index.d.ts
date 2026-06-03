@@ -4,6 +4,9 @@ export interface NativeContextOptions {
   useFlashAttn?: boolean
   useGpu?: boolean
   maxModelBytes?: number
+  cacheModel?: boolean
+  modelCacheName?: string
+  modelCacheKey?: string
   worker?: boolean
 }
 
@@ -13,6 +16,9 @@ export interface NativeVadContextOptions {
   useGpu?: boolean
   nThreads?: number
   maxModelBytes?: number
+  cacheModel?: boolean
+  modelCacheName?: string
+  modelCacheKey?: string
   worker?: boolean
 }
 
@@ -142,6 +148,7 @@ export interface WasmRuntimeOptions {
   locateFileBaseUrl?: string
   locateFile?: (path: string, prefix: string) => string
   mainScriptUrlOrBlob?: string | Blob
+  modelCacheName?: string
   print?: (text: string) => void
   printErr?: (text: string) => void
 }
@@ -149,6 +156,7 @@ export interface WasmRuntimeOptions {
 export declare const WhisperContext: Module['WhisperContext']
 export declare const WhisperVadContext: Module['WhisperVadContext']
 export declare const DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: number
+export declare const MAX_WASM_THREADS: number
 
 export declare function configureWasm(options: WasmRuntimeOptions): void
 export declare function loadWasmModule(): Promise<unknown>
@@ -178,6 +186,7 @@ declare const _default: {
   toggleNativeLog: typeof toggleNativeLog
   addNativeLogListener: typeof addNativeLogListener
   DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: typeof DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES
+  MAX_WASM_THREADS: typeof MAX_WASM_THREADS
 }
 
 export default _default

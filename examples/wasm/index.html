@@ -57,6 +57,25 @@
         border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
         white-space: pre-wrap;
       }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 8px 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      td:nth-child(2) {
+        width: 120px;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
     </style>
   </head>
   <body>
@@ -93,6 +112,11 @@
       </label>
 
       <label>
+        <input id="cache-model" type="checkbox" checked />
+        Cache model downloads
+      </label>
+
+      <label>
         Max threads
         <input id="max-threads" min="1" step="1" type="number" />
       </label>
@@ -109,6 +133,17 @@
 
       <button id="run">Run</button>
       <p id="tick">UI tick 0</p>
+      <p id="progress">Progress idle</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th>Duration</th>
+            <th>Details</th>
+          </tr>
+        </thead>
+        <tbody id="timings"></tbody>
+      </table>
       <pre id="log"></pre>
     </main>
 
@@ -118,17 +153,26 @@
       const log = document.getElementById('log')
       const run = document.getElementById('run')
       const tick = document.getElementById('tick')
+      const progress = document.getElementById('progress')
+      const timings = document.getElementById('timings')
       const maxThreadsInput = document.getElementById('max-threads')
       const languageInput = document.getElementById('language')
+      const maxWasmThreads = WhisperNodeWasm.MAX_WASM_THREADS || 8
       let tickCount = 0
+      let transcribeStartedAt = 0
+      let lastProgress = null
 
       maxThreadsInput.value = String(
-        Math.max(1, Math.min(8, navigator.hardwareConcurrency || 1)),
+        Math.max(1, Math.min(maxWasmThreads, navigator.hardwareConcurrency || 1)),
       )
+      maxThreadsInput.max = String(maxWasmThreads)
 
       setInterval(() => {
         tickCount += 1
         tick.textContent = `UI tick ${tickCount}`
+        if (transcribeStartedAt && lastProgress !== null) {
+          progress.textContent = `Transcribe progress ${lastProgress}%${elapsedTranscribeText()}`
+        }
       }, 100)
 
       function write(message, data) {
@@ -137,6 +181,103 @@
           log.textContent += `\n${JSON.stringify(data, null, 2)}`
         }
         log.textContent += '\n\n'
+      }
+
+      function resetTimings() {
+        timings.textContent = ''
+      }
+
+      function resetProgress() {
+        transcribeStartedAt = 0
+        lastProgress = null
+        progress.textContent = 'Progress idle'
+      }
+
+      function formatDuration(ms) {
+        return `${ms.toFixed(1)} ms`
+      }
+
+      function elapsedTranscribeText() {
+        return transcribeStartedAt
+          ? `, elapsed ${formatDuration(performance.now() - transcribeStartedAt)}`
+          : ''
+      }
+
+      function setTranscribeProgress(value, forceLog) {
+        const normalized = Math.max(0, Math.min(100, Number(value) || 0))
+        progress.textContent = `Transcribe progress ${normalized}%${elapsedTranscribeText()}`
+        if (forceLog || normalized !== lastProgress) {
+          write(`progress ${normalized}%${elapsedTranscribeText()}`)
+          lastProgress = normalized
+        }
+      }
+
+      function readMaxThreads() {
+        const requested = Number(maxThreadsInput.value) || 1
+        const clamped = Math.max(1, Math.min(maxWasmThreads, Math.floor(requested)))
+        maxThreadsInput.value = String(clamped)
+        return clamped
+      }
+
+      function createTimingRow(step) {
+        const row = document.createElement('tr')
+        const stepCell = document.createElement('td')
+        const durationCell = document.createElement('td')
+        const detailsCell = document.createElement('td')
+
+        stepCell.textContent = step
+        durationCell.textContent = 'running'
+        detailsCell.textContent = ''
+
+        row.append(stepCell, durationCell, detailsCell)
+        timings.append(row)
+
+        return {
+          durationCell,
+          detailsCell,
+        }
+      }
+
+      function appendTiming(step, durationMs, details) {
+        const row = createTimingRow(step)
+        row.durationCell.textContent = formatDuration(durationMs)
+        row.detailsCell.textContent = details || ''
+        write(`timing ${step}: ${formatDuration(durationMs)}${details ? ` (${details})` : ''}`)
+      }
+
+      async function timed(step, action, details) {
+        const start = performance.now()
+        const row = createTimingRow(step)
+        const interval = setInterval(() => {
+          row.durationCell.textContent = `${formatDuration(performance.now() - start)} running`
+        }, 500)
+
+        try {
+          const result = await action()
+          const durationMs = performance.now() - start
+          const detailText = typeof details === 'function' ? details(result) : details
+          row.durationCell.textContent = formatDuration(durationMs)
+          row.detailsCell.textContent = detailText || ''
+          write(`timing ${step}: ${formatDuration(durationMs)}${detailText ? ` (${detailText})` : ''}`)
+          return result
+        } catch (error) {
+          row.durationCell.textContent = formatDuration(performance.now() - start)
+          row.detailsCell.textContent = 'failed'
+          throw error
+        } finally {
+          clearInterval(interval)
+        }
+      }
+
+      function modelCacheDetails(info) {
+        if (!info || !info.cacheName) {
+          return ''
+        }
+        return info.cacheHit
+          ? `cache hit: ${info.cacheName}`
+          : info.cacheStored
+            ? `cached: ${info.cacheName}`
+            : `cache miss: ${info.cacheName}`
       }
 
       WhisperNodeWasm.addNativeLogListener((level, text) => {
@@ -301,16 +442,20 @@
       run.addEventListener('click', async () => {
         run.disabled = true
         log.textContent = ''
+        resetTimings()
+        resetProgress()
 
         const whisperModel = document.getElementById('whisper-model').value
         const vadModel = document.getElementById('vad-model').value
         const audioUrl = document.getElementById('audio-url').value
         const maxModelBytes = Number(document.getElementById('max-model-bytes').value)
-        const maxThreads = Math.max(1, Number(maxThreadsInput.value) || 1)
+        const cacheModel = document.getElementById('cache-model').checked
+        const maxThreads = readMaxThreads()
         const language = languageInput.value.trim() || 'en'
         const useGpu = document.getElementById('use-gpu').checked
 
         try {
+          const totalStartedAt = performance.now()
           if (!crossOriginIsolated) {
             write('crossOriginIsolated is false; serve this page with COOP/COEP headers.')
           }
@@ -320,38 +465,75 @@
           const toLocalUrl = (url) => `/proxy?url=${encodeURIComponent(url)}`
 
           write('Loading whisper model')
-          const whisper = await WhisperNodeWasm.initWhisper({
-            filePath: toLocalUrl(whisperModel),
-            maxModelBytes,
-            useGpu,
-          })
+          const whisper = await timed(
+            'Whisper model load',
+            () => WhisperNodeWasm.initWhisper({
+              filePath: toLocalUrl(whisperModel),
+              maxModelBytes,
+              cacheModel,
+              useGpu,
+            }),
+            (context) => modelCacheDetails(context.getModelInfo()),
+          )
+          const whisperInfo = whisper.getModelInfo()
+          write('Whisper model loaded', whisperInfo)
 
           write('Loading audio data')
-          const audioData = await loadAudioData(toLocalUrl(audioUrl))
+          const audioData = await timed(
+            'Audio load and decode',
+            () => loadAudioData(toLocalUrl(audioUrl)),
+            (audio) => `${audio.length} samples`,
+          )
 
           write('Transcribing audio data')
-          const { promise } = whisper.transcribeData(audioData, {
-            language,
-            maxThreads,
-            temperature: 0,
-            onProgress: (progress) => write(`progress ${progress}%`),
-          })
-          const transcription = await promise
+          const transcription = await timed(
+            'Whisper transcribeData',
+            async () => {
+              transcribeStartedAt = performance.now()
+              setTranscribeProgress(0, true)
+              const { promise } = whisper.transcribeData(audioData, {
+                language,
+                maxThreads,
+                temperature: 0,
+                onProgress: (progress) => setTranscribeProgress(progress, false),
+              })
+              try {
+                const result = await promise
+                setTranscribeProgress(100, true)
+                return result
+              } finally {
+                transcribeStartedAt = 0
+              }
+            },
+            (result) => `${result.segments.length} segments, ${maxThreads} threads`,
+          )
           write('Transcription result', transcription)
-          await whisper.release()
+          await timed('Whisper release', () => whisper.release())
 
           write('Loading VAD model')
-          const vad = await WhisperNodeWasm.initWhisperVad({
-            filePath: toLocalUrl(vadModel),
-            maxModelBytes,
-            useGpu,
-            nThreads: 2,
-          })
+          const vad = await timed(
+            'VAD model load',
+            () => WhisperNodeWasm.initWhisperVad({
+              filePath: toLocalUrl(vadModel),
+              maxModelBytes,
+              cacheModel,
+              useGpu,
+              nThreads: 2,
+            }),
+            (context) => modelCacheDetails(context.getModelInfo()),
+          )
+          const vadInfo = vad.getModelInfo()
+          write('VAD model loaded', vadInfo)
 
           write('Detecting speech')
-          const segments = await vad.detectSpeechFile(toLocalUrl(audioUrl))
+          const segments = await timed(
+            'VAD detectSpeechFile',
+            () => vad.detectSpeechFile(toLocalUrl(audioUrl)),
+            (result) => `${result.length} segments`,
+          )
           write('VAD result', segments)
-          await vad.release()
+          await timed('VAD release', () => vad.release())
+          appendTiming('Total', performance.now() - totalStartedAt)
         } catch (error) {
           write(error && error.stack ? error.stack : String(error))
         } finally {

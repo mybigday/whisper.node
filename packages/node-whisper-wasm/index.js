@@ -23,6 +23,8 @@
     var MIB = 1024 * 1024
     var FIREFOX_MODEL_LIMIT_BYTES = 256 * MIB
     var MODEL_MEMORY_RATIO = 0.75
+    var MAX_WASM_THREADS = 8
+    var DEFAULT_MODEL_CACHE_NAME = 'whisper.node.wasm.models'
 
     var runtimePromise = null
     var runtimeOptions = {}
@@ -366,6 +368,39 @@
       throw new Error('fetch is required to load models or audio by URL')
     }
 
+    function getCacheStorage() {
+      return root.caches || null
+    }
+
+    function isModelCacheEnabled(options) {
+      return !options || options.cacheModel !== false
+    }
+
+    function getModelCacheName(options) {
+      return (
+        (options && options.modelCacheName) ||
+        runtimeOptions.modelCacheName ||
+        DEFAULT_MODEL_CACHE_NAME
+      )
+    }
+
+    function getModelCacheKey(source, options) {
+      var key = (options && options.modelCacheKey) || source
+      try {
+        return new URL(key, root.location && root.location.href).href
+      } catch (_) {
+        return key
+      }
+    }
+
+    function canUseModelCache(options) {
+      return (
+        isModelCacheEnabled(options) &&
+        !!getCacheStorage() &&
+        typeof root.Response === 'function'
+      )
+    }
+
     function formatBytes(bytes) {
       if (bytes >= 1024 * MIB) {
         return (bytes / (1024 * MIB)).toFixed(2) + ' GiB'
@@ -497,6 +532,106 @@
       return buffer
     }
 
+    async function readCachedModel(source, limit, options) {
+      if (!canUseModelCache(options)) {
+        return null
+      }
+
+      var cacheName = getModelCacheName(options)
+      var cacheKey = getModelCacheKey(source, options)
+
+      try {
+        var cache = await getCacheStorage().open(cacheName)
+        var response = await cache.match(cacheKey)
+        if (!response) {
+          return null
+        }
+
+        var buffer = await response.arrayBuffer()
+        if (limit) {
+          assertModelSize(buffer.byteLength, limit, source)
+        }
+        emitLog('INFO', 'Loaded cached WASM model: ' + source)
+        return {
+          buffer: buffer,
+          cacheHit: true,
+          cacheStored: false,
+          cacheName: cacheName,
+          cacheKey: cacheKey,
+        }
+      } catch (error) {
+        emitLog(
+          'WARN',
+          'Failed to read cached WASM model ' +
+            source +
+            ': ' +
+            (error && error.message ? error.message : String(error)),
+        )
+        return null
+      }
+    }
+
+    async function writeCachedModel(source, buffer, options) {
+      if (!canUseModelCache(options)) {
+        return {
+          cacheStored: false,
+          cacheName: null,
+          cacheKey: null,
+        }
+      }
+
+      var cacheName = getModelCacheName(options)
+      var cacheKey = getModelCacheKey(source, options)
+
+      try {
+        var cache = await getCacheStorage().open(cacheName)
+        await cache.put(
+          cacheKey,
+          new root.Response(buffer.slice(0), {
+            headers: {
+              'content-type': 'application/octet-stream',
+            },
+          }),
+        )
+        emitLog('INFO', 'Cached WASM model download: ' + source)
+        return {
+          cacheStored: true,
+          cacheName: cacheName,
+          cacheKey: cacheKey,
+        }
+      } catch (error) {
+        emitLog(
+          'WARN',
+          'Failed to cache WASM model ' +
+            source +
+            ': ' +
+            (error && error.message ? error.message : String(error)),
+        )
+        return {
+          cacheStored: false,
+          cacheName: cacheName,
+          cacheKey: cacheKey,
+        }
+      }
+    }
+
+    async function fetchModelArrayBuffer(source, limit, options) {
+      var cached = await readCachedModel(source, limit, options)
+      if (cached) {
+        return cached
+      }
+
+      var buffer = await fetchArrayBuffer(source, limit)
+      var cache = await writeCachedModel(source, buffer, options)
+      return {
+        buffer: buffer,
+        cacheHit: false,
+        cacheStored: cache.cacheStored,
+        cacheName: cache.cacheName,
+        cacheKey: cache.cacheKey,
+      }
+    }
+
     async function ensureModel(runtime, source, kind, options) {
       if (!source) {
         throw new Error('Model path is required')
@@ -510,8 +645,8 @@
       if (!modelCache[cacheKey]) {
         modelCache[cacheKey] = (async function () {
           var limit = getModelSizeLimit(runtime, options)
-          var buffer = await fetchArrayBuffer(source, limit)
-          var bytes = new Uint8Array(buffer)
+          var loaded = await fetchModelArrayBuffer(source, limit, options)
+          var bytes = new Uint8Array(loaded.buffer)
           var virtualPath =
             '/models/' + kind + '-' + hashString(source) + '-' + basenameFromUrl(source)
 
@@ -521,6 +656,10 @@
           return {
             virtualPath: virtualPath,
             bytes: bytes.byteLength,
+            cacheHit: loaded.cacheHit,
+            cacheStored: loaded.cacheStored,
+            cacheName: loaded.cacheName,
+            cacheKey: loaded.cacheKey,
           }
         })()
       }
@@ -562,8 +701,27 @@
       return value
     }
 
-    function normalizeTranscribeOptions(options) {
+    function normalizeMaxThreads(value) {
+      var nThreads = Number(value)
+      if (!Number.isFinite(nThreads) || nThreads <= 0) {
+        return null
+      }
+      return Math.max(1, Math.min(MAX_WASM_THREADS, Math.floor(nThreads)))
+    }
+
+    function normalizeThreadOptions(options) {
       var normalized = Object.assign({}, options || {})
+      var maxThreads = normalizeMaxThreads(normalized.maxThreads)
+      if (maxThreads) {
+        normalized.maxThreads = maxThreads
+      } else {
+        delete normalized.maxThreads
+      }
+      return normalized
+    }
+
+    function normalizeTranscribeOptions(options) {
+      var normalized = normalizeThreadOptions(options)
       if (typeof normalized.onProgress !== 'function') {
         delete normalized.onProgress
       }
@@ -574,7 +732,7 @@
     }
 
     function splitTranscribeOptions(options) {
-      var normalized = Object.assign({}, options || {})
+      var normalized = normalizeThreadOptions(options)
       var callbacks = {}
 
       if (typeof normalized.onProgress === 'function') {
@@ -966,6 +1124,10 @@
         useGpu: useGpu,
         useFlashAttn: options.useFlashAttn === true,
         bytes: model.bytes,
+        cacheHit: model.cacheHit,
+        cacheStored: model.cacheStored,
+        cacheName: model.cacheName,
+        cacheKey: model.cacheKey,
         wasm: true,
       })
     }
@@ -1168,6 +1330,10 @@
         useGpu: useGpu,
         nThreads: init.nThreads,
         bytes: model.bytes,
+        cacheHit: model.cacheHit,
+        cacheStored: model.cacheStored,
+        cacheName: model.cacheName,
+        cacheKey: model.cacheKey,
         wasm: true,
       })
     }
@@ -1241,6 +1407,7 @@
       toggleNativeLog: toggleNativeLog,
       addNativeLogListener: addNativeLogListener,
       DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: 1500 * MIB,
+      MAX_WASM_THREADS: MAX_WASM_THREADS,
     }
 
     api.default = api

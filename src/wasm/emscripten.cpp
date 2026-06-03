@@ -18,6 +18,7 @@ namespace {
 using emscripten::val;
 
 constexpr double kWasmMaximumMemoryBytes = 2000.0 * 1024.0 * 1024.0;
+constexpr int kMaxWasmThreads = 8;
 
 struct WhisperSession {
     std::string path;
@@ -108,7 +109,11 @@ std::string get_string(const val & object, const char * name, const std::string 
 
 int default_thread_count() {
     const unsigned int hardware = std::thread::hardware_concurrency();
-    return std::max(1, std::min(8, static_cast<int>(hardware == 0 ? 1 : hardware)));
+    return std::max(1, std::min(kMaxWasmThreads, static_cast<int>(hardware == 0 ? 1 : hardware)));
+}
+
+int clamp_thread_count(int n_threads) {
+    return std::max(1, std::min(kMaxWasmThreads, n_threads));
 }
 
 std::vector<float> copy_float32_array(const val & audio) {
@@ -170,7 +175,7 @@ whisper_full_params create_full_params(const val & options) {
     params.beam_search.beam_size = get_int(options, "beamSize", params.beam_search.beam_size);
     params.greedy.best_of = get_int(options, "bestOf", params.greedy.best_of);
 
-    params.n_threads = std::max(1, params.n_threads);
+    params.n_threads = clamp_thread_count(params.n_threads);
 
     return params;
 }
@@ -321,7 +326,7 @@ val init_vad(const std::string & model_path, bool use_gpu, int n_threads) {
     whisper_vad_context_params params = whisper_vad_default_context_params();
     params.use_gpu = use_gpu;
     params.gpu_device = 0;
-    params.n_threads = std::max(1, n_threads);
+    params.n_threads = clamp_thread_count(n_threads);
 
     whisper_vad_context * ctx = whisper_vad_init_from_file_with_params(model_path.c_str(), params);
     if (!ctx) {
@@ -481,7 +486,7 @@ val bench(int id, int n_threads) {
     }
 
     whisper_context * ctx = session->ctx;
-    n_threads = std::max(1, n_threads);
+    n_threads = clamp_thread_count(n_threads);
 
     const int n_mels = whisper_model_n_mels(ctx);
     int ret = whisper_set_mel(ctx, nullptr, 0, n_mels);
