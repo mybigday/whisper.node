@@ -1,6 +1,6 @@
 {
   "name": "@fugood/node-whisper-wasm",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "Browser WASM module for whisper.node",
   "type": "module",
   "main": "index.js",
