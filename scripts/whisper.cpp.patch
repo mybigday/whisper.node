@@ -1,8 +1,8 @@
 diff --git a/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt b/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-index c1c225f0..9a187f11 100644
+index 8c735a04..fb772b38 100644
 --- a/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
 +++ b/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-@@ -111,7 +111,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
+@@ -103,7 +103,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
              )
  
          if (MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
@@ -12,10 +12,10 @@ index c1c225f0..9a187f11 100644
              check_cxx_compiler_flag(-mfp16-format=ieee GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E)
              if (NOT "${GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E}" STREQUAL "")
 diff --git a/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt b/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
-index 715a263a..bd6c5a01 100644
+index 2d9e8579..bda5dc10 100644
 --- a/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
 +++ b/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
-@@ -121,7 +121,7 @@ if (Vulkan_FOUND)
+@@ -132,7 +132,7 @@ if (Vulkan_FOUND)
      endif()
  
      # Set up toolchain for host compilation whether cross-compiling or not
@@ -24,7 +24,7 @@ index 715a263a..bd6c5a01 100644
          if (GGML_VULKAN_SHADERS_GEN_TOOLCHAIN)
              set(HOST_CMAKE_TOOLCHAIN_FILE ${GGML_VULKAN_SHADERS_GEN_TOOLCHAIN})
          else()
-@@ -141,7 +141,7 @@ if (Vulkan_FOUND)
+@@ -152,7 +152,7 @@ if (Vulkan_FOUND)
  
      include(ExternalProject)
  
