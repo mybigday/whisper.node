@@ -91,6 +91,31 @@ await vadContext.release()
 
 **Note**: Audio data should be 16-bit PCM, mono, 16kHz format. The library expects ArrayBuffer containing raw audio data.
 
+### Native Logs
+
+```js
+import {
+  addNativeLogListener,
+  isNativeLogEnabled,
+  toggleNativeLog,
+} from '@fugood/whisper.node'
+
+const logs = addNativeLogListener((level, text) => {
+  console.log(`[whisper ${level}] ${text}`)
+})
+
+await toggleNativeLog(true)
+console.log(isNativeLogEnabled())
+
+// ...
+
+await toggleNativeLog(false)
+logs.remove()
+```
+
+Log levels are emitted as lowercase `error`, `warn`, `info`, or `debug`
+strings. The same helpers are available in Node.js and browser WASM builds.
+
 ### Browser WASM
 
 The browser package keeps the same promise-based `initWhisper` and

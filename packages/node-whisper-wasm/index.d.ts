@@ -189,6 +189,7 @@ export declare function toggleNativeLog(
 export declare function addNativeLogListener(
   listener: (level: string, text: string) => void,
 ): { remove: () => void }
+export declare function isNativeLogEnabled(): boolean
 
 declare const _default: {
   WhisperContext: typeof WhisperContext
@@ -200,6 +201,7 @@ declare const _default: {
   initWhisperVad: typeof initWhisperVad
   toggleNativeLog: typeof toggleNativeLog
   addNativeLogListener: typeof addNativeLogListener
+  isNativeLogEnabled: typeof isNativeLogEnabled
   isWasmThreadsSupported: typeof isWasmThreadsSupported
   DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: typeof DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES
   MAX_WASM_THREADS: typeof MAX_WASM_THREADS

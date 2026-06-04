@@ -152,15 +152,32 @@ const createWhisperNodeApi = function (root) {
       return options
     }
 
+    function normalizeLogLevel(level) {
+      var normalized = String(level || '').toLowerCase()
+      if (normalized === 'warning') {
+        return 'warn'
+      }
+      if (
+        normalized === 'error' ||
+        normalized === 'warn' ||
+        normalized === 'info' ||
+        normalized === 'debug'
+      ) {
+        return normalized
+      }
+      return normalized || 'info'
+    }
+
     function emitLog(level, text) {
       if (!logEnabled) {
         return
       }
+      var normalizedLevel = normalizeLogLevel(level)
       if (typeof nativeLogCallback === 'function') {
-        nativeLogCallback(level, text)
+        nativeLogCallback(normalizedLevel, text)
       }
       logListeners.slice().forEach(function (listener) {
-        listener(level, text)
+        listener(normalizedLevel, text)
       })
     }
 
@@ -1473,6 +1490,9 @@ const createWhisperNodeApi = function (root) {
       initWhisperVad: initWhisperVad,
       toggleNativeLog: toggleNativeLog,
       addNativeLogListener: addNativeLogListener,
+      isNativeLogEnabled: function () {
+        return logEnabled
+      },
       isWasmThreadsSupported: isWasmThreadsSupported,
       DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: 1500 * MIB,
       MAX_WASM_THREADS: MAX_WASM_THREADS,
@@ -1498,6 +1518,7 @@ export const initWhisper = api.initWhisper
 export const initWhisperVad = api.initWhisperVad
 export const toggleNativeLog = api.toggleNativeLog
 export const addNativeLogListener = api.addNativeLogListener
+export const isNativeLogEnabled = api.isNativeLogEnabled
 export const isWasmThreadsSupported = api.isWasmThreadsSupported
 
 if (root) {

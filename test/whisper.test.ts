@@ -4,6 +4,7 @@ import {
   initWhisper,
   toggleNativeLog,
   addNativeLogListener,
+  isNativeLogEnabled,
 } from '../lib/index'
 
 // Test configuration
@@ -79,6 +80,7 @@ describe('Whisper transcription', () => {
     try {
       // Enable native logging
       await toggleNativeLog(true)
+      expect(isNativeLogEnabled()).toBe(true)
 
       // Load a model to trigger some logging
       const context = await initWhisper({
@@ -93,10 +95,12 @@ describe('Whisper transcription', () => {
       await context.release()
 
       // We should have received some logs (though the exact content depends on the whisper implementation)
-      expect(logs.length).toBeGreaterThanOrEqual(0)
+      expect(logs.length).toBeGreaterThan(0)
+      expect(logs.some((log) => log.level === 'info')).toBe(true)
     } finally {
       // Always disable logging and remove listener, even if test fails
       await toggleNativeLog(false)
+      expect(isNativeLogEnabled()).toBe(false)
       remove()
     }
   })

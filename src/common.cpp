@@ -28,7 +28,8 @@ void setup_logging() {
 void cleanup_logging() {
     g_log_callback = nullptr;
     g_log_enabled = false;
-    cleanup_js_log_callback();  // Clean up JavaScript callback
+    whisper_log_set(nullptr, nullptr);
+    cleanup_js_log_callback();
 }
 
 // WhisperSession implementation

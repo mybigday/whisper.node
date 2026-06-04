@@ -423,15 +423,46 @@ bool WhisperContext::isJobCancelled(int jobId) {
 // Static JavaScript callback function for logging
 static Napi::ThreadSafeFunction g_js_log_callback;
 
+struct NativeLogMessage {
+    std::string level;
+    std::string text;
+};
+
+const char* whisper_log_level_to_string(ggml_log_level level) {
+    switch (level) {
+        case GGML_LOG_LEVEL_ERROR:
+            return "error";
+        case GGML_LOG_LEVEL_WARN:
+            return "warn";
+        case GGML_LOG_LEVEL_INFO:
+            return "info";
+        case GGML_LOG_LEVEL_DEBUG:
+            return "debug";
+        default:
+            return "";
+    }
+}
+
 // C++ wrapper function that calls the JavaScript callback
 void whisper_log_callback_js(const char* level, const char* text) {
     if (g_js_log_callback) {
-        g_js_log_callback.NonBlockingCall([level, text](Napi::Env env, Napi::Function jsCallback) {
-            std::string level_str(level);
-            std::string text_str(text);
-            jsCallback.Call({Napi::String::New(env, level_str), Napi::String::New(env, text_str)});
+        auto* data = new NativeLogMessage{level ? level : "", text ? text : ""};
+        auto status = g_js_log_callback.BlockingCall(data, [](Napi::Env env, Napi::Function jsCallback, NativeLogMessage* data) {
+            jsCallback.Call({Napi::String::New(env, data->level), Napi::String::New(env, data->text)});
+            delete data;
         });
+        if (status != napi_ok) {
+            delete data;
+        }
     }
+}
+
+void whisper_native_log_callback(ggml_log_level level, const char* text, void*) {
+    if (!g_log_enabled || !g_log_callback) {
+        return;
+    }
+
+    g_log_callback(whisper_log_level_to_string(level), text ? text : "");
 }
 
 // Function to clean up JavaScript logging callback
@@ -448,7 +479,7 @@ void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
     bool enable = whisper_utils::getBool(info[0], false);
     
     if (enable) {
-        // If enabling logging and a callback is provided, set it up
+        cleanup_js_log_callback();
         if (info.Length() >= 2 && info[1].IsFunction()) {
             auto callback = info[1].As<Napi::Function>();
             g_js_log_callback = Napi::ThreadSafeFunction::New(
@@ -459,13 +490,17 @@ void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
                 1
             );
             g_log_callback = whisper_log_callback_js;
+            whisper_log_set(whisper_native_log_callback, nullptr);
+        } else {
+            g_log_callback = nullptr;
+            whisper_log_set(nullptr, nullptr);
         }
         g_log_enabled = true;
     } else {
-        // Disable logging
         g_log_enabled = false;
         g_log_callback = nullptr;
-        cleanup_js_log_callback();  // Immediately clean up JavaScript callback
+        whisper_log_set(nullptr, nullptr);
+        cleanup_js_log_callback();
     }
 }
 
@@ -942,7 +977,7 @@ void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
     bool enable = whisper_utils::getBool(info[0], false);
     
     if (enable) {
-        // If enabling logging and a callback is provided, set it up
+        cleanup_js_log_callback();
         if (info.Length() >= 2 && info[1].IsFunction()) {
             auto callback = info[1].As<Napi::Function>();
             g_js_log_callback = Napi::ThreadSafeFunction::New(
@@ -953,13 +988,17 @@ void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
                 1
             );
             g_log_callback = whisper_log_callback_js;
+            whisper_log_set(whisper_native_log_callback, nullptr);
+        } else {
+            g_log_callback = nullptr;
+            whisper_log_set(nullptr, nullptr);
         }
         g_log_enabled = true;
     } else {
-        // Disable logging
         g_log_enabled = false;
         g_log_callback = nullptr;
-        cleanup_js_log_callback();  // Immediately clean up JavaScript callback
+        whisper_log_set(nullptr, nullptr);
+        cleanup_js_log_callback();
     }
 }
 

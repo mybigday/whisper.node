@@ -99,7 +99,10 @@ export function addNativeLogListener(
   logListeners.push(listener)
   return {
     remove: () => {
-      logListeners.splice(logListeners.indexOf(listener), 1)
+      const index = logListeners.indexOf(listener)
+      if (index >= 0) {
+        logListeners.splice(index, 1)
+      }
     },
   }
 }
@@ -112,8 +115,7 @@ export function addNativeLogListener(
 export const loadWhisperModule = async (variant?: LibVariant): Promise<Module> => {
   if (!moduleCache) {
     moduleCache = await loadModule(variant);
-    // Don't automatically setup logging on module load
-    // Users should explicitly call toggleNativeLog(true) if they want logging
+    refreshNativeLogSetup()
   }
   return moduleCache;
 };
@@ -151,6 +153,8 @@ export const initWhisperVad = async (
     | Promise<WhisperVadContext>);
 };
 
+export const isNativeLogEnabled = () => logEnabled
+
 // Default export
 export default {
   initWhisper,
@@ -160,5 +164,6 @@ export default {
   addNativeLogListener,
   configureWasm,
   isWasmThreadsSupported,
+  isNativeLogEnabled,
   WASM_CONFIG_PATHS,
 };
