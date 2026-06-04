@@ -2,65 +2,49 @@
 
 set -euo pipefail
 
-BUILD_DIR=${BUILD_DIR:-build/wasm}
-WEBGPU=${WEBGPU:-ON}
-WEBGPU_JSPI=${WEBGPU_JSPI:-OFF}
-SINGLE_FILE=${SINGLE_FILE:-OFF}
-BUILD_TYPE=${BUILD_TYPE:-Release}
+THREADS=${THREADS:-BOTH}
+ARGS=()
+HAS_WEBGPU_ARG=OFF
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --build-dir)
-      BUILD_DIR="$2"
-      shift
+    --threads)
+      THREADS=ON
       ;;
-    --webgpu)
-      WEBGPU=ON
+    --no-threads)
+      THREADS=OFF
       ;;
-    --no-webgpu)
-      WEBGPU=OFF
+    --all-threads)
+      THREADS=BOTH
       ;;
-    --webgpu-jspi)
-      WEBGPU_JSPI=ON
-      ;;
-    --no-webgpu-jspi)
-      WEBGPU_JSPI=OFF
-      ;;
-    --single-file)
-      SINGLE_FILE=ON
-      ;;
-    --no-single-file)
-      SINGLE_FILE=OFF
-      ;;
-    --debug)
-      BUILD_TYPE=Debug
+    --webgpu|--no-webgpu)
+      HAS_WEBGPU_ARG=ON
+      ARGS+=("$1")
       ;;
     *)
-      echo "Unknown parameter passed: $1"
-      exit 1
+      ARGS+=("$1")
       ;;
   esac
   shift
 done
 
-if ! command -v emcmake >/dev/null 2>&1; then
-  echo "emcmake is required. Install and activate Emscripten before building WASM."
-  exit 1
+if [[ "$HAS_WEBGPU_ARG" == "OFF" ]]; then
+  ARGS+=("--webgpu")
 fi
 
-mkdir -p packages/node-whisper-wasm/wasm
-rm -f packages/node-whisper-wasm/wasm/whisper-node.js \
-  packages/node-whisper-wasm/wasm/whisper-node.wasm \
-  packages/node-whisper-wasm/wasm/whisper-node.worker.js \
-  packages/node-whisper-wasm/whisper-node.js \
-  packages/node-whisper-wasm/whisper-node.wasm \
-  packages/node-whisper-wasm/whisper-node.worker.js
-
-emcmake cmake -S . -B "$BUILD_DIR" \
-  -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-  -DWHISPER_NODE_WASM=ON \
-  -DWHISPER_NODE_WASM_SINGLE_FILE="$SINGLE_FILE" \
-  -DGGML_WEBGPU="$WEBGPU" \
-  -DGGML_WEBGPU_JSPI="$WEBGPU_JSPI"
-
-cmake --build "$BUILD_DIR" --target whisper-node-wasm --parallel
+case "$THREADS" in
+  ON)
+    node scripts/build-wasm-package.js "${ARGS[@]}" --threads
+    ;;
+  OFF)
+    node scripts/build-wasm-package.js "${ARGS[@]}" --no-threads
+    ;;
+  BOTH)
+    node scripts/build-wasm-package.js "${ARGS[@]}" --no-threads
+    node scripts/build-wasm-package.js "${ARGS[@]}" --threads
+    ;;
+  *)
+    echo "Invalid THREADS value: $THREADS. Expected ON, OFF, or BOTH."
+    exit 1
+    ;;
+esac

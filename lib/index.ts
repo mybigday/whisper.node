@@ -29,6 +29,41 @@ export type {
   LibVariant
 };
 
+export interface WasmRuntimeOptions {
+  worker?: boolean
+  workerUrl?: string
+  workerPath?: string
+  indexScriptUrl?: string
+  scriptUrl?: string
+  runtimeScriptUrl?: string
+  jsPath?: string
+  wasmPath?: string
+  threads?: boolean
+  locateFileBaseUrl?: string
+  locateFile?: (path: string, prefix: string) => string
+  mainScriptUrlOrBlob?: string | Blob
+  modelCacheName?: string
+  moduleFactory?: (options?: Record<string, unknown>) => Promise<unknown> | unknown
+  moduleOptions?: Record<string, unknown>
+  print?: (text: string) => void
+  printErr?: (text: string) => void
+}
+
+export const WASM_CONFIG_PATHS = {
+  index: '',
+  js: '',
+  wasm: '',
+  threadsJs: '',
+  threadsWasm: '',
+  worker: '',
+}
+
+export const configureWasm = (_options: WasmRuntimeOptions) => {
+  throw new Error('configureWasm is only available in the browser WASM build')
+}
+
+export const isWasmThreadsSupported = () => false
+
 // Global module cache
 let moduleCache: Module | null = null;
 
@@ -122,5 +157,8 @@ export default {
   initWhisperVad,
   loadWhisperModule,
   toggleNativeLog,
-  addNativeLogListener
+  addNativeLogListener,
+  configureWasm,
+  isWasmThreadsSupported,
+  WASM_CONFIG_PATHS,
 };

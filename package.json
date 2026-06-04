@@ -16,6 +16,7 @@
     "prebuild-native": "node scripts/generate_win_dynamic_load.js 6",
     "build-native": "cmake-js compile",
     "build-wasm": "bash scripts/build-wasm.sh",
+    "build-wasm-docker": "node scripts/build-wasm-docker.js",
     "clean": "rimraf build",
     "prepare": "husky",
     "commitlint": "commitlint --edit",
@@ -26,6 +27,8 @@
   "files": [
     "scripts/check.js",
     "scripts/build-wasm.sh",
+    "scripts/build-wasm-package.js",
+    "scripts/build-wasm-docker.js",
     "src/*.{cc,c,h,hpp,cpp}",
     "src/wasm/**/*.{cc,c,h,hpp,cpp}",
     "whisper.cpp/{examples,src,include}/**/*.{h,hpp,cpp,cc,c}",

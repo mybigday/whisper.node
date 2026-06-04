@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 option(WHISPER_NODE_WASM "Build the browser WASM package" OFF)
 option(WHISPER_NODE_WASM_SINGLE_FILE "Embed WASM into the generated browser JS" OFF)
+option(WHISPER_NODE_WASM_THREADS "Build the browser WASM package with pthread support" OFF)
 
 execute_process(
   COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
@@ -51,10 +52,18 @@ if (WHISPER_NODE_WASM)
   set(GGML_NATIVE OFF CACHE BOOL "Disable native CPU flags for portable WASM" FORCE)
   set(GGML_OPENMP OFF CACHE BOOL "Disable OpenMP for WASM" FORCE)
 
+  if (WHISPER_NODE_WASM_THREADS)
+    add_compile_options("-pthread")
+  endif()
+
   add_subdirectory("whisper.cpp")
 
   set(WASM_TARGET whisper-node-wasm)
-  set(WASM_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/packages/node-whisper-wasm/wasm)
+  if (WHISPER_NODE_WASM_THREADS)
+    set(WASM_OUTPUT_NAME "whisper-node.threads")
+  else()
+    set(WASM_OUTPUT_NAME "whisper-node")
+  endif()
 
   add_executable(${WASM_TARGET}
     "src/wasm/emscripten.cpp"
@@ -69,24 +78,18 @@ if (WHISPER_NODE_WASM)
 
   target_link_libraries(${WASM_TARGET} PRIVATE whisper)
 
-  target_compile_options(${WASM_TARGET} PRIVATE "-pthread")
-
   set_target_properties(${WASM_TARGET} PROPERTIES
-    OUTPUT_NAME "whisper-node"
+    OUTPUT_NAME ${WASM_OUTPUT_NAME}
     SUFFIX ".js"
-    RUNTIME_OUTPUT_DIRECTORY ${WASM_OUTPUT_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
   )
 
   target_link_options(${WASM_TARGET} PRIVATE
-    "-pthread"
     "--bind"
     "-sMODULARIZE=1"
     "-sEXPORT_ES6=1"
     "-sEXPORT_NAME=createWhisperNodeModule"
     "-sENVIRONMENT=web,worker"
-    "-sUSE_PTHREADS=1"
-    "-sPTHREAD_POOL_SIZE=8"
-    "-sPTHREAD_POOL_SIZE_STRICT=0"
     "-sINITIAL_MEMORY=512MB"
     "-sMAXIMUM_MEMORY=2000MB"
     "-sALLOW_MEMORY_GROWTH=1"
@@ -94,6 +97,15 @@ if (WHISPER_NODE_WASM)
     "-sEXPORTED_RUNTIME_METHODS=['FS','HEAPU8']"
     "-sEXIT_RUNTIME=0"
   )
+
+  if (WHISPER_NODE_WASM_THREADS)
+    target_link_options(${WASM_TARGET} PRIVATE
+      "-pthread"
+      "-sUSE_PTHREADS=1"
+      "-sPTHREAD_POOL_SIZE=8"
+      "-sPTHREAD_POOL_SIZE_STRICT=0"
+    )
+  endif()
 
   if (WHISPER_NODE_WASM_SINGLE_FILE)
     target_link_options(${WASM_TARGET} PRIVATE "-sSINGLE_FILE=1")

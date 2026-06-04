@@ -108,12 +108,21 @@ std::string get_string(const val & object, const char * name, const std::string 
 }
 
 int default_thread_count() {
+#ifdef __EMSCRIPTEN_PTHREADS__
     const unsigned int hardware = std::thread::hardware_concurrency();
     return std::max(1, std::min(kMaxWasmThreads, static_cast<int>(hardware == 0 ? 1 : hardware)));
+#else
+    return 1;
+#endif
 }
 
 int clamp_thread_count(int n_threads) {
+#ifdef __EMSCRIPTEN_PTHREADS__
     return std::max(1, std::min(kMaxWasmThreads, n_threads));
+#else
+    (void) n_threads;
+    return 1;
+#endif
 }
 
 std::vector<float> copy_float32_array(const val & audio) {

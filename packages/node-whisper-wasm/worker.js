@@ -108,6 +108,7 @@ import WhisperNodeWasm from './index.js'
     runtimeOptions.worker = false
     runtimeOptions.jsPath = runtimeScriptUrl
     runtimeOptions.wasmPath = wasmPath
+    runtimeOptions.__resolvedThreads = config.threads === true
     runtimeOptions.mainScriptUrlOrBlob = runtimeScriptUrl
 
     api.configureWasm(runtimeOptions)

@@ -42,6 +42,8 @@
     "README.md",
     "worker.js",
     "wasm/whisper-node.js",
-    "wasm/whisper-node.wasm"
+    "wasm/whisper-node.wasm",
+    "wasm/whisper-node.threads.js",
+    "wasm/whisper-node.threads.wasm"
   ]
 }

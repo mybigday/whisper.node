@@ -1,11 +1,15 @@
 *.js
+!scripts/build-wasm-package.js
+!scripts/build-wasm-docker.js
 !packages/node-whisper-wasm/index.js
 !packages/node-whisper-wasm/worker.js
 packages/node-whisper-wasm/whisper-node.wasm
+packages/node-whisper-wasm/wasm/*.wasm
 .DS_Store
 *.log
 node_modules/
 build/
+build-wasm/
 *.bin
 coverage/
 tmp.sess

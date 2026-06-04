@@ -122,26 +122,29 @@ console.log(await vad.detectSpeechFile('https://raw.githubusercontent.com/ggml-o
 await vad.release()
 ```
 
-The WASM build uses pthreads, so the page must be cross-origin isolated
-(`Cross-Origin-Opener-Policy: same-origin` and
-`Cross-Origin-Embedder-Policy: require-corp`) to expose `SharedArrayBuffer`.
-Oversized model downloads fail before loading into MEMFS. Firefox is capped at
-256 MiB by default; other browsers default to 75% of the configured WASM maximum
-memory. Pass `maxModelBytes` only when you know the target browser can allocate
-the model. Whisper transcription defaults to up to 8 threads based on browser
-hardware concurrency; pass `maxThreads` to override it. Browser WASM clamps
-`maxThreads` to the compiled pool limit of 8. Browser pages run model loading,
-transcription, benchmarks, and VAD in a dedicated module worker by default so
-the UI thread can keep rendering. Use the main `whisper.node` package entrypoint
-in browser code too:
+The browser package ships both single-thread and pthread WASM artifacts. On
+cross-origin isolated pages (`Cross-Origin-Opener-Policy: same-origin` and
+`Cross-Origin-Embedder-Policy: require-corp`), the loader uses the pthread
+artifact with `SharedArrayBuffer`; otherwise it falls back to the single-thread
+artifact automatically. Oversized model downloads fail before loading into
+MEMFS. Firefox is capped at 256 MiB by default; other browsers default to 75% of
+the configured WASM maximum memory. Pass `maxModelBytes` only when you know the
+target browser can allocate the model. Whisper transcription defaults to up to 8
+threads based on browser hardware concurrency when pthreads are available; pass
+`maxThreads` to override it. Browser WASM clamps `maxThreads` to the compiled
+pool limit of 8, or 1 in the single-thread fallback. Browser pages run model
+loading, transcription, benchmarks, and VAD in a dedicated module worker by
+default so the UI thread can keep rendering. Use the main `whisper.node` package
+entrypoint in browser code too:
 
 ```js
 import { configureWasm, initWhisper } from '@fugood/whisper.node'
 ```
 
 Use `configureWasm({ worker: false })` only when you explicitly need the
-in-thread runtime, or pass `workerPath`, `jsPath`, and `wasmPath` when serving
-the package files from custom URLs. The older `workerUrl` and
+in-thread runtime, `configureWasm({ threads: false })` to force the
+single-thread artifact, or pass `workerPath`, `jsPath`, and `wasmPath` when
+serving the package files from custom URLs. The older `workerUrl` and
 `runtimeScriptUrl` option names still work. Model
 downloads are cached in browser Cache Storage by default. Pass
 `cacheModel: false` to disable persistent caching, `modelCacheName` to isolate
@@ -154,14 +157,25 @@ Build the browser package with:
 npm run build-wasm
 ```
 
-`npm run build-wasm` enables `GGML_WEBGPU=ON` by default. Use
-`bash scripts/build-wasm.sh --no-webgpu` for a CPU-only WASM build. The default
-build emits `wasm/whisper-node.js` and `wasm/whisper-node.wasm`; pass
-`--single-file` only when you want the WASM binary embedded into
-`wasm/whisper-node.js`. Modern Emscripten embeds the pthread worker bootstrap in
-the main JS file, so a separate `whisper-node.worker.js` is not expected. The
-browser package also ships its own module `worker.js` wrapper for non-blocking
-model load and inference. A local smoke page is available after building:
+Or build with the Emscripten Docker image:
+
+```sh
+npm run build-wasm-docker
+```
+
+`npm run build-wasm` enables `GGML_WEBGPU=ON` by default and emits
+`wasm/whisper-node.js`, `wasm/whisper-node.wasm`,
+`wasm/whisper-node.threads.js`, and `wasm/whisper-node.threads.wasm`. Use
+`bash scripts/build-wasm.sh --no-webgpu` for a CPU-only WASM build, or
+`--no-threads` / `--threads` to build only one CPU threading variant. Pass
+`--single-file` only when you want the WASM binary embedded into each generated
+JS file. Modern Emscripten embeds the pthread worker bootstrap in the main JS
+file, so a separate `whisper-node.worker.js` is not expected. The browser
+package also ships its own module `worker.js` wrapper for non-blocking model load
+and inference. `npm run build-wasm-docker` uses `emscripten/emsdk:4.0.14-arm64`
+on arm64 hosts such as Apple Silicon Macs, and `emscripten/emsdk:4.0.13` on
+amd64 hosts. Override with `EMSCRIPTEN_IMAGE` or `EMSCRIPTEN_PLATFORM` when
+needed. A local smoke page is available after building:
 
 ```sh
 node examples/wasm/server.mjs

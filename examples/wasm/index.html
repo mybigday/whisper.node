@@ -451,13 +451,17 @@
         const maxModelBytes = Number(document.getElementById('max-model-bytes').value)
         const cacheModel = document.getElementById('cache-model').checked
         const maxThreads = readMaxThreads()
+        const effectiveMaxThreads = WhisperNodeWasm.isWasmThreadsSupported()
+          ? maxThreads
+          : 1
+        const effectiveVadThreads = Math.min(2, effectiveMaxThreads)
         const language = languageInput.value.trim() || 'en'
         const useGpu = document.getElementById('use-gpu').checked
 
         try {
           const totalStartedAt = performance.now()
-          if (!crossOriginIsolated) {
-            write('crossOriginIsolated is false; serve this page with COOP/COEP headers.')
+          if (!WhisperNodeWasm.isWasmThreadsSupported()) {
+            write('WASM threads are unavailable; using the single-thread fallback.')
           }
 
           await WhisperNodeWasm.toggleNativeLog(true)
@@ -493,7 +497,7 @@
               setTranscribeProgress(0, true)
               const { promise } = whisper.transcribeData(audioData, {
                 language,
-                maxThreads,
+                maxThreads: effectiveMaxThreads,
                 temperature: 0,
                 onProgress: (progress) => setTranscribeProgress(progress, false),
               })
@@ -505,7 +509,8 @@
                 transcribeStartedAt = 0
               }
             },
-            (result) => `${result.segments.length} segments, ${maxThreads} threads`,
+            (result) =>
+              `${result.segments.length} segments, ${effectiveMaxThreads} threads`,
           )
           write('Transcription result', transcription)
           await timed('Whisper release', () => whisper.release())
@@ -518,7 +523,7 @@
               maxModelBytes,
               cacheModel,
               useGpu,
-              nThreads: 2,
+              nThreads: effectiveVadThreads,
             }),
             (context) => modelCacheDetails(context.getModelInfo()),
           )

@@ -148,6 +148,7 @@ export interface WasmRuntimeOptions {
   runtimeScriptUrl?: string
   jsPath?: string
   wasmPath?: string
+  threads?: boolean
   locateFileBaseUrl?: string
   locateFile?: (path: string, prefix: string) => string
   mainScriptUrlOrBlob?: string | Blob
@@ -166,10 +167,13 @@ export declare const WASM_CONFIG_PATHS: {
   index: string
   js: string
   wasm: string
+  threadsJs: string
+  threadsWasm: string
   worker: string
 }
 
 export declare function configureWasm(options: WasmRuntimeOptions): void
+export declare function isWasmThreadsSupported(): boolean
 export declare function loadWasmModule(): Promise<unknown>
 export declare function loadWhisperModule(): Promise<Module>
 export declare function initWhisper(
@@ -196,6 +200,7 @@ declare const _default: {
   initWhisperVad: typeof initWhisperVad
   toggleNativeLog: typeof toggleNativeLog
   addNativeLogListener: typeof addNativeLogListener
+  isWasmThreadsSupported: typeof isWasmThreadsSupported
   DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: typeof DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES
   MAX_WASM_THREADS: typeof MAX_WASM_THREADS
   WASM_CONFIG_PATHS: typeof WASM_CONFIG_PATHS

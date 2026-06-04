@@ -11,6 +11,8 @@ export const WASM_CONFIG_PATHS = {
   index: new URL('./index.js', import.meta.url).href,
   js: new URL('./wasm/whisper-node.js', import.meta.url).href,
   wasm: new URL('./wasm/whisper-node.wasm', import.meta.url).href,
+  threadsJs: new URL('./wasm/whisper-node.threads.js', import.meta.url).href,
+  threadsWasm: new URL('./wasm/whisper-node.threads.wasm', import.meta.url).href,
   worker: new URL('./worker.js', import.meta.url).href,
 }
 
@@ -68,20 +70,39 @@ const createWhisperNodeApi = function (root) {
       return capturedScriptUrl
     }
 
-    function getRuntimeScriptUrl(indexScriptUrl) {
+    function isWasmThreadsSupported() {
+      if (!isBrowserLike()) {
+        return true
+      }
+      return (
+        typeof root.SharedArrayBuffer !== 'undefined' &&
+        typeof root.Atomics !== 'undefined' &&
+        typeof root.crossOriginIsolated !== 'undefined' &&
+        root.crossOriginIsolated === true
+      )
+    }
+
+    function shouldUseThreadedRuntime() {
+      if (typeof runtimeOptions.__resolvedThreads === 'boolean') {
+        return runtimeOptions.__resolvedThreads
+      }
+      return runtimeOptions.threads !== false && isWasmThreadsSupported()
+    }
+
+    function getRuntimeScriptUrl(indexScriptUrl, useThreads) {
       var configured = runtimeOptions.jsPath || runtimeOptions.runtimeScriptUrl
       if (configured) {
         return resolveUrl(configured, indexScriptUrl)
       }
-      return WASM_CONFIG_PATHS.js
+      return useThreads ? WASM_CONFIG_PATHS.threadsJs : WASM_CONFIG_PATHS.js
     }
 
-    function getWasmBinaryUrl(runtimeScriptUrl) {
+    function getWasmBinaryUrl(runtimeScriptUrl, useThreads) {
       var configured = runtimeOptions.wasmPath
       if (configured) {
         return resolveUrl(configured, runtimeScriptUrl)
       }
-      return WASM_CONFIG_PATHS.wasm
+      return useThreads ? WASM_CONFIG_PATHS.threadsWasm : WASM_CONFIG_PATHS.wasm
     }
 
     function getWorkerScriptUrl(indexScriptUrl) {
@@ -111,6 +132,8 @@ const createWhisperNodeApi = function (root) {
         runtimeScriptUrl: true,
         jsPath: true,
         wasmPath: true,
+        threads: true,
+        __resolvedThreads: true,
         locateFileBaseUrl: true,
         locateFile: true,
         moduleFactory: true,
@@ -129,14 +152,6 @@ const createWhisperNodeApi = function (root) {
       return options
     }
 
-    function assertThreadSupport() {
-      if (isBrowserLike() && typeof root.SharedArrayBuffer === 'undefined') {
-        throw new Error(
-          'whisper.node WASM is built with pthreads and requires SharedArrayBuffer. Serve the page with COOP/COEP headers so the browser is cross-origin isolated.',
-        )
-      }
-    }
-
     function emitLog(level, text) {
       if (!logEnabled) {
         return
@@ -151,12 +166,11 @@ const createWhisperNodeApi = function (root) {
 
     function loadRuntime() {
       if (!runtimePromise) {
-        assertThreadSupport()
-
         runtimePromise = (async function () {
           var indexScriptUrl = getIndexScriptUrl()
-          var runtimeScriptUrl = getRuntimeScriptUrl(indexScriptUrl)
-          var wasmUrl = getWasmBinaryUrl(runtimeScriptUrl)
+          var useThreads = shouldUseThreadedRuntime()
+          var runtimeScriptUrl = getRuntimeScriptUrl(indexScriptUrl, useThreads)
+          var wasmUrl = getWasmBinaryUrl(runtimeScriptUrl, useThreads)
           var moduleFactory = runtimeOptions.moduleFactory
 
           if (!moduleFactory) {
@@ -168,7 +182,7 @@ const createWhisperNodeApi = function (root) {
           }
           if (typeof moduleFactory !== 'function') {
             throw new Error(
-              'Failed to load whisper.node WASM runtime. Make sure wasm/whisper-node.js is built and included in the package.',
+              'Failed to load whisper.node WASM runtime. Make sure the selected wasm/whisper-node*.js artifact is built and included in the package.',
             )
           }
 
@@ -193,6 +207,8 @@ const createWhisperNodeApi = function (root) {
           delete options.runtimeScriptUrl
           delete options.jsPath
           delete options.wasmPath
+          delete options.threads
+          delete options.__resolvedThreads
           delete options.locateFileBaseUrl
 
           options.noInitialRun = true
@@ -219,7 +235,9 @@ const createWhisperNodeApi = function (root) {
             }
           }
 
-          return moduleFactory(options)
+          var runtime = await moduleFactory(options)
+          runtime.__whisperNodeWasmThreads = useThreads
+          return runtime
         })()
       }
 
@@ -253,8 +271,9 @@ const createWhisperNodeApi = function (root) {
 
     function createWorkerProxy() {
       var indexScriptUrl = getIndexScriptUrl()
-      var runtimeScriptUrl = getRuntimeScriptUrl(indexScriptUrl)
-      var wasmUrl = getWasmBinaryUrl(runtimeScriptUrl)
+      var useThreads = shouldUseThreadedRuntime()
+      var runtimeScriptUrl = getRuntimeScriptUrl(indexScriptUrl, useThreads)
+      var wasmUrl = getWasmBinaryUrl(runtimeScriptUrl, useThreads)
       var workerScriptUrl = getWorkerScriptUrl(indexScriptUrl)
 
       if (!indexScriptUrl || !runtimeScriptUrl || !workerScriptUrl) {
@@ -367,6 +386,7 @@ const createWhisperNodeApi = function (root) {
           indexScriptUrl: indexScriptUrl,
           runtimeScriptUrl: runtimeScriptUrl,
           wasmPath: wasmUrl,
+          threads: useThreads,
           runtimeOptions: getWorkerRuntimeOptions(),
           locateFileBaseUrl:
             runtimeOptions.locateFileBaseUrl || resolveUrl('.', runtimeScriptUrl),
@@ -743,17 +763,21 @@ const createWhisperNodeApi = function (root) {
       return value
     }
 
-    function normalizeMaxThreads(value) {
+    function normalizeMaxThreads(value, runtime) {
+      var maxThreads =
+        runtime && runtime.__whisperNodeWasmThreads !== true
+          ? 1
+          : MAX_WASM_THREADS
       var nThreads = Number(value)
       if (!Number.isFinite(nThreads) || nThreads <= 0) {
         return null
       }
-      return Math.max(1, Math.min(MAX_WASM_THREADS, Math.floor(nThreads)))
+      return Math.max(1, Math.min(maxThreads, Math.floor(nThreads)))
     }
 
-    function normalizeThreadOptions(options) {
+    function normalizeThreadOptions(options, runtime) {
       var normalized = Object.assign({}, options || {})
-      var maxThreads = normalizeMaxThreads(normalized.maxThreads)
+      var maxThreads = normalizeMaxThreads(normalized.maxThreads, runtime)
       if (maxThreads) {
         normalized.maxThreads = maxThreads
       } else {
@@ -762,8 +786,8 @@ const createWhisperNodeApi = function (root) {
       return normalized
     }
 
-    function normalizeTranscribeOptions(options) {
-      var normalized = normalizeThreadOptions(options)
+    function normalizeTranscribeOptions(options, runtime) {
+      var normalized = normalizeThreadOptions(options, runtime)
       if (typeof normalized.onProgress !== 'function') {
         delete normalized.onProgress
       }
@@ -1209,7 +1233,7 @@ const createWhisperNodeApi = function (root) {
           await runtime.__wasm_transcribe(
             id,
             audio,
-            normalizeTranscribeOptions(options),
+            normalizeTranscribeOptions(options, runtime),
           ),
         )
         if (isCancelled && isCancelled()) {
@@ -1258,7 +1282,8 @@ const createWhisperNodeApi = function (root) {
 
     WhisperContextInstance.prototype.bench = async function (nThreads) {
       this._assertValid()
-      return unwrapWasmResult(await this._runtime.__wasm_bench(this._id, nThreads || 1))
+      var threads = normalizeMaxThreads(nThreads || 1, this._runtime) || 1
+      return unwrapWasmResult(await this._runtime.__wasm_bench(this._id, threads))
     }
 
     WhisperContextInstance.prototype.release = function () {
@@ -1352,7 +1377,7 @@ const createWhisperNodeApi = function (root) {
       var modelSource = options.filePath || options.modelUrl
       var runtime = await loadRuntime()
       var useGpu = false
-      var nThreads = options.nThreads || 1
+      var nThreads = normalizeMaxThreads(options.nThreads || 1, runtime) || 1
 
       if (options.useGpu === true) {
         emitLog(
@@ -1448,6 +1473,7 @@ const createWhisperNodeApi = function (root) {
       initWhisperVad: initWhisperVad,
       toggleNativeLog: toggleNativeLog,
       addNativeLogListener: addNativeLogListener,
+      isWasmThreadsSupported: isWasmThreadsSupported,
       DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: 1500 * MIB,
       MAX_WASM_THREADS: MAX_WASM_THREADS,
       WASM_CONFIG_PATHS: WASM_CONFIG_PATHS,
@@ -1472,6 +1498,7 @@ export const initWhisper = api.initWhisper
 export const initWhisperVad = api.initWhisperVad
 export const toggleNativeLog = api.toggleNativeLog
 export const addNativeLogListener = api.addNativeLogListener
+export const isWasmThreadsSupported = api.isWasmThreadsSupported
 
 if (root) {
   root.WhisperNodeWasm = api
