@@ -1,22 +1,20 @@
-(function (root, factory) {
-  if (typeof module === 'object' && module.exports) {
-    module.exports = factory(function () {
-      return require('./whisper-node.js')
-    }, root)
-  } else {
-    root.WhisperNodeWasm = factory(function () {
-      return root.createWhisperNodeModule
-    }, root)
-  }
-})(
+const root =
   typeof globalThis !== 'undefined'
     ? globalThis
     : typeof self !== 'undefined'
       ? self
       : typeof window !== 'undefined'
         ? window
-        : this,
-  function (loadModuleFactory, root) {
+        : undefined
+
+export const WASM_CONFIG_PATHS = {
+  index: new URL('./index.js', import.meta.url).href,
+  js: new URL('./wasm/whisper-node.js', import.meta.url).href,
+  wasm: new URL('./wasm/whisper-node.wasm', import.meta.url).href,
+  worker: new URL('./worker.js', import.meta.url).href,
+}
+
+const createWhisperNodeApi = function (root) {
     'use strict'
 
     var SAMPLE_RATE = 16000
@@ -29,7 +27,7 @@
     var runtimePromise = null
     var runtimeOptions = {}
     var workerProxyPromise = null
-    var capturedScriptUrl = getCurrentScriptUrl()
+    var capturedScriptUrl = WASM_CONFIG_PATHS.index
     var modelCache = Object.create(null)
     var logEnabled = false
     var logListeners = []
@@ -42,19 +40,8 @@
       runtimeOptions = Object.assign({}, runtimeOptions, options || {})
     }
 
-    function getCurrentScriptUrl() {
-      if (
-        root.document &&
-        root.document.currentScript &&
-        root.document.currentScript.src
-      ) {
-        return root.document.currentScript.src
-      }
-      return null
-    }
-
     function isBrowserLike() {
-      return typeof root.window !== 'undefined' || typeof root.importScripts === 'function'
+      return typeof root.window !== 'undefined' || typeof root.WorkerGlobalScope !== 'undefined'
     }
 
     function isMainBrowserThread() {
@@ -82,19 +69,27 @@
     }
 
     function getRuntimeScriptUrl(indexScriptUrl) {
-      var configured = runtimeOptions.runtimeScriptUrl
+      var configured = runtimeOptions.jsPath || runtimeOptions.runtimeScriptUrl
       if (configured) {
         return resolveUrl(configured, indexScriptUrl)
       }
-      return indexScriptUrl ? resolveUrl('whisper-node.js', indexScriptUrl) : null
+      return WASM_CONFIG_PATHS.js
+    }
+
+    function getWasmBinaryUrl(runtimeScriptUrl) {
+      var configured = runtimeOptions.wasmPath
+      if (configured) {
+        return resolveUrl(configured, runtimeScriptUrl)
+      }
+      return WASM_CONFIG_PATHS.wasm
     }
 
     function getWorkerScriptUrl(indexScriptUrl) {
-      var configured = runtimeOptions.workerUrl
+      var configured = runtimeOptions.workerPath || runtimeOptions.workerUrl
       if (configured) {
         return resolveUrl(configured, indexScriptUrl)
       }
-      return indexScriptUrl ? resolveUrl('worker.js', indexScriptUrl) : null
+      return WASM_CONFIG_PATHS.worker
     }
 
     function shouldUseWorker(options) {
@@ -110,11 +105,16 @@
       var blocked = {
         worker: true,
         workerUrl: true,
+        workerPath: true,
         indexScriptUrl: true,
         scriptUrl: true,
         runtimeScriptUrl: true,
+        jsPath: true,
+        wasmPath: true,
         locateFileBaseUrl: true,
         locateFile: true,
+        moduleFactory: true,
+        moduleOptions: true,
         print: true,
         printErr: true,
         mainScriptUrlOrBlob: true,
@@ -153,35 +153,74 @@
       if (!runtimePromise) {
         assertThreadSupport()
 
-        var moduleFactory = loadModuleFactory()
-        if (moduleFactory && moduleFactory.default) {
-          moduleFactory = moduleFactory.default
-        }
-        if (typeof moduleFactory !== 'function') {
-          throw new Error(
-            'Failed to load whisper.node WASM runtime. Make sure whisper-node.js is built and loaded before index.js.',
+        runtimePromise = (async function () {
+          var indexScriptUrl = getIndexScriptUrl()
+          var runtimeScriptUrl = getRuntimeScriptUrl(indexScriptUrl)
+          var wasmUrl = getWasmBinaryUrl(runtimeScriptUrl)
+          var moduleFactory = runtimeOptions.moduleFactory
+
+          if (!moduleFactory) {
+            var runtimeModule = await import(runtimeScriptUrl)
+            moduleFactory =
+              runtimeModule.default ||
+              runtimeModule.createWhisperNodeModule ||
+              runtimeModule
+          }
+          if (typeof moduleFactory !== 'function') {
+            throw new Error(
+              'Failed to load whisper.node WASM runtime. Make sure wasm/whisper-node.js is built and included in the package.',
+            )
+          }
+
+          var options = Object.assign(
+            {},
+            runtimeOptions.moduleOptions || {},
+            runtimeOptions,
           )
-        }
+          var userPrint = options.print
+          var userPrintErr = options.printErr
+          var userLocateFile = options.locateFile
+          var locateFileBaseUrl =
+            options.locateFileBaseUrl || resolveUrl('.', runtimeScriptUrl)
 
-        var options = Object.assign({}, runtimeOptions)
-        var userPrint = options.print
-        var userPrintErr = options.printErr
+          delete options.moduleFactory
+          delete options.moduleOptions
+          delete options.worker
+          delete options.workerUrl
+          delete options.workerPath
+          delete options.indexScriptUrl
+          delete options.scriptUrl
+          delete options.runtimeScriptUrl
+          delete options.jsPath
+          delete options.wasmPath
+          delete options.locateFileBaseUrl
 
-        options.noInitialRun = true
-        options.print = function (text) {
-          emitLog('INFO', String(text))
-          if (typeof userPrint === 'function') {
-            userPrint(text)
+          options.noInitialRun = true
+          options.mainScriptUrlOrBlob = options.mainScriptUrlOrBlob || runtimeScriptUrl
+          options.locateFile = function (path, prefix) {
+            if (path === 'whisper-node.wasm' || path.slice(-5) === '.wasm') {
+              return wasmUrl
+            }
+            if (typeof userLocateFile === 'function') {
+              return userLocateFile(path, prefix)
+            }
+            return resolveUrl(path, locateFileBaseUrl || prefix)
           }
-        }
-        options.printErr = function (text) {
-          emitLog('ERROR', String(text))
-          if (typeof userPrintErr === 'function') {
-            userPrintErr(text)
+          options.print = function (text) {
+            emitLog('INFO', String(text))
+            if (typeof userPrint === 'function') {
+              userPrint(text)
+            }
           }
-        }
+          options.printErr = function (text) {
+            emitLog('ERROR', String(text))
+            if (typeof userPrintErr === 'function') {
+              userPrintErr(text)
+            }
+          }
 
-        runtimePromise = Promise.resolve(moduleFactory(options))
+          return moduleFactory(options)
+        })()
       }
 
       return runtimePromise
@@ -215,6 +254,7 @@
     function createWorkerProxy() {
       var indexScriptUrl = getIndexScriptUrl()
       var runtimeScriptUrl = getRuntimeScriptUrl(indexScriptUrl)
+      var wasmUrl = getWasmBinaryUrl(runtimeScriptUrl)
       var workerScriptUrl = getWorkerScriptUrl(indexScriptUrl)
 
       if (!indexScriptUrl || !runtimeScriptUrl || !workerScriptUrl) {
@@ -222,6 +262,7 @@
       }
 
       var worker = new root.Worker(workerScriptUrl, {
+        type: 'module',
         name: 'whisper.node.wasm',
       })
       var proxy = {
@@ -325,6 +366,7 @@
         {
           indexScriptUrl: indexScriptUrl,
           runtimeScriptUrl: runtimeScriptUrl,
+          wasmPath: wasmUrl,
           runtimeOptions: getWorkerRuntimeOptions(),
           locateFileBaseUrl:
             runtimeOptions.locateFileBaseUrl || resolveUrl('.', runtimeScriptUrl),
@@ -1408,10 +1450,31 @@
       addNativeLogListener: addNativeLogListener,
       DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: 1500 * MIB,
       MAX_WASM_THREADS: MAX_WASM_THREADS,
+      WASM_CONFIG_PATHS: WASM_CONFIG_PATHS,
     }
 
     api.default = api
 
     return api
-  },
-)
+  }
+
+const api = createWhisperNodeApi(root)
+
+export const WhisperContext = api.WhisperContext
+export const WhisperVadContext = api.WhisperVadContext
+export const DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES =
+  api.DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES
+export const MAX_WASM_THREADS = api.MAX_WASM_THREADS
+export const configureWasm = api.configureWasm
+export const loadWasmModule = api.loadWasmModule
+export const loadWhisperModule = api.loadWhisperModule
+export const initWhisper = api.initWhisper
+export const initWhisperVad = api.initWhisperVad
+export const toggleNativeLog = api.toggleNativeLog
+export const addNativeLogListener = api.addNativeLogListener
+
+if (root) {
+  root.WhisperNodeWasm = api
+}
+
+export default api

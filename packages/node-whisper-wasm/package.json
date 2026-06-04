@@ -2,6 +2,7 @@
   "name": "@fugood/node-whisper-wasm",
   "version": "1.0.19",
   "description": "Browser WASM module for whisper.node",
+  "type": "module",
   "main": "index.js",
   "browser": "index.js",
   "types": "index.d.ts",
@@ -39,8 +40,8 @@
     "index.js",
     "index.d.ts",
     "README.md",
-    "whisper-node.js",
     "worker.js",
-    "whisper-node.wasm"
+    "wasm/whisper-node.js",
+    "wasm/whisper-node.wasm"
   ]
 }

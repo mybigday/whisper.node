@@ -48,7 +48,11 @@ if ! command -v emcmake >/dev/null 2>&1; then
   exit 1
 fi
 
-rm -f packages/node-whisper-wasm/whisper-node.js \
+mkdir -p packages/node-whisper-wasm/wasm
+rm -f packages/node-whisper-wasm/wasm/whisper-node.js \
+  packages/node-whisper-wasm/wasm/whisper-node.wasm \
+  packages/node-whisper-wasm/wasm/whisper-node.worker.js \
+  packages/node-whisper-wasm/whisper-node.js \
   packages/node-whisper-wasm/whisper-node.wasm \
   packages/node-whisper-wasm/whisper-node.worker.js
 

@@ -1,13 +1,17 @@
 # @fugood/node-whisper-wasm
 
-Browser WASM package for `@fugood/whisper.node`.
+Browser WASM implementation package for `@fugood/whisper.node`. Application
+code should import `@fugood/whisper.node`; this package is pulled in by the main
+package for browser builds.
 
 The package exposes the same high-level context API as the native packages, but
 model and audio file paths are fetched as URLs and copied into the Emscripten
 filesystem before inference.
 
 ```js
-const whisper = await WhisperNodeWasm.initWhisper({
+import { initWhisper } from '@fugood/whisper.node'
+
+const whisper = await initWhisper({
   filePath: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
   useGpu: false,
 })
@@ -25,10 +29,17 @@ headers and expose `SharedArrayBuffer`. Whisper transcription defaults to up to
 8 threads based on browser hardware concurrency; pass `maxThreads` to override
 it. Browser WASM clamps `maxThreads` to the compiled pool limit of 8. Browser
 pages run model loading, transcription, benchmarks, and VAD in a dedicated
-worker by default so the UI thread can keep rendering. Use
-`configureWasm({ worker: false })` only when you explicitly need the old
-in-thread runtime, or pass `workerUrl`, `indexScriptUrl`, and `runtimeScriptUrl`
-when serving the package files from custom URLs. Model downloads are cached in
+module worker by default so the UI thread can keep rendering. Use the main
+`whisper.node` package entrypoint in browser code:
+
+```js
+import { configureWasm, initWhisper } from '@fugood/whisper.node'
+```
+
+Use `configureWasm({ worker: false })` only when you explicitly need the
+in-thread runtime, or pass `workerPath`, `jsPath`, and `wasmPath` when serving
+the package files from custom URLs. The older `workerUrl` and
+`runtimeScriptUrl` option names still work. Model downloads are cached in
 browser Cache Storage by default. Pass `cacheModel: false` to disable persistent
 caching, `modelCacheName` to isolate the cache namespace, or `modelCacheKey`
 when the fetch URL is a proxy or signed URL but should reuse the same cached
@@ -36,9 +47,9 @@ model. Set `useGpu: true` only with a package built using `GGML_WEBGPU=ON` and a
 browser that exposes `navigator.gpu`. VAD currently falls back to CPU in the
 browser package because the Silero VAD graph hits unsupported WebGPU ops.
 
-The default build emits `whisper-node.js` and `whisper-node.wasm`. Use
-`bash scripts/build-wasm.sh --single-file` only when you want the WASM binary
-embedded into `whisper-node.js`. Modern Emscripten embeds the pthread worker
-bootstrap in the main JS file, so a separate `whisper-node.worker.js` is not
-expected. The package worker that keeps UI work off the main thread is
-`worker.js`.
+The default build emits `wasm/whisper-node.js` and `wasm/whisper-node.wasm`.
+Use `bash scripts/build-wasm.sh --single-file` only when you want the WASM
+binary embedded into `wasm/whisper-node.js`. Modern Emscripten embeds the
+pthread worker bootstrap in the main JS file, so a separate
+`whisper-node.worker.js` is not expected. The package module worker that keeps
+UI work off the main thread is `worker.js`.

@@ -131,10 +131,18 @@ memory. Pass `maxModelBytes` only when you know the target browser can allocate
 the model. Whisper transcription defaults to up to 8 threads based on browser
 hardware concurrency; pass `maxThreads` to override it. Browser WASM clamps
 `maxThreads` to the compiled pool limit of 8. Browser pages run model loading,
-transcription, benchmarks, and VAD in a dedicated worker by default so the UI
-thread can keep rendering. Use `configureWasm({ worker: false })` only when you
-explicitly need the old in-thread runtime, or pass `workerUrl`, `indexScriptUrl`,
-and `runtimeScriptUrl` when serving the package files from custom URLs. Model
+transcription, benchmarks, and VAD in a dedicated module worker by default so
+the UI thread can keep rendering. Use the main `whisper.node` package entrypoint
+in browser code too:
+
+```js
+import { configureWasm, initWhisper } from '@fugood/whisper.node'
+```
+
+Use `configureWasm({ worker: false })` only when you explicitly need the
+in-thread runtime, or pass `workerPath`, `jsPath`, and `wasmPath` when serving
+the package files from custom URLs. The older `workerUrl` and
+`runtimeScriptUrl` option names still work. Model
 downloads are cached in browser Cache Storage by default. Pass
 `cacheModel: false` to disable persistent caching, `modelCacheName` to isolate
 the cache namespace, or `modelCacheKey` when the fetch URL is a proxy or signed
@@ -148,12 +156,12 @@ npm run build-wasm
 
 `npm run build-wasm` enables `GGML_WEBGPU=ON` by default. Use
 `bash scripts/build-wasm.sh --no-webgpu` for a CPU-only WASM build. The default
-build emits `whisper-node.js` and `whisper-node.wasm`; pass `--single-file` only
-when you want the WASM binary embedded into `whisper-node.js`. Modern Emscripten
-embeds the pthread worker bootstrap in the main JS file, so a separate
-`whisper-node.worker.js` is not expected. The browser package also ships its own
-`worker.js` wrapper for non-blocking model load and inference. A local smoke page
-is available after building:
+build emits `wasm/whisper-node.js` and `wasm/whisper-node.wasm`; pass
+`--single-file` only when you want the WASM binary embedded into
+`wasm/whisper-node.js`. Modern Emscripten embeds the pthread worker bootstrap in
+the main JS file, so a separate `whisper-node.worker.js` is not expected. The
+browser package also ships its own module `worker.js` wrapper for non-blocking
+model load and inference. A local smoke page is available after building:
 
 ```sh
 node examples/wasm/server.mjs

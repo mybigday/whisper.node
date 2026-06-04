@@ -177,8 +177,13 @@ const normalizeLoadedModule = (module: unknown): Module => {
   return maybeModule.WhisperContext ? maybeModule : (maybeModule.default as Module)
 }
 
+const importEsm = new Function(
+  'specifier',
+  'return import(specifier)',
+) as (specifier: string) => Promise<unknown>
+
 const loadWasmPackage = async (): Promise<Module> => {
-  const module = await import('@fugood/node-whisper-wasm')
+  const module = await importEsm('@fugood/node-whisper-wasm')
   return normalizeLoadedModule(module)
 }
 

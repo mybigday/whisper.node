@@ -142,13 +142,18 @@ export interface Module {
 export interface WasmRuntimeOptions {
   worker?: boolean
   workerUrl?: string
+  workerPath?: string
   indexScriptUrl?: string
   scriptUrl?: string
   runtimeScriptUrl?: string
+  jsPath?: string
+  wasmPath?: string
   locateFileBaseUrl?: string
   locateFile?: (path: string, prefix: string) => string
   mainScriptUrlOrBlob?: string | Blob
   modelCacheName?: string
+  moduleFactory?: (options?: Record<string, unknown>) => Promise<unknown> | unknown
+  moduleOptions?: Record<string, unknown>
   print?: (text: string) => void
   printErr?: (text: string) => void
 }
@@ -157,6 +162,12 @@ export declare const WhisperContext: Module['WhisperContext']
 export declare const WhisperVadContext: Module['WhisperVadContext']
 export declare const DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: number
 export declare const MAX_WASM_THREADS: number
+export declare const WASM_CONFIG_PATHS: {
+  index: string
+  js: string
+  wasm: string
+  worker: string
+}
 
 export declare function configureWasm(options: WasmRuntimeOptions): void
 export declare function loadWasmModule(): Promise<unknown>
@@ -187,6 +198,7 @@ declare const _default: {
   addNativeLogListener: typeof addNativeLogListener
   DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: typeof DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES
   MAX_WASM_THREADS: typeof MAX_WASM_THREADS
+  WASM_CONFIG_PATHS: typeof WASM_CONFIG_PATHS
 }
 
 export default _default

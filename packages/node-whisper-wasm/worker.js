@@ -1,3 +1,5 @@
+import WhisperNodeWasm from './index.js'
+
 (function (root) {
   'use strict'
 
@@ -87,27 +89,26 @@
     }
 
     config = config || {}
-    var indexScriptUrl = resolveUrl(config.indexScriptUrl || 'index.js')
+    var indexScriptUrl = resolveUrl(config.indexScriptUrl || import.meta.url)
     var runtimeScriptUrl = resolveUrl(
-      config.runtimeScriptUrl || 'whisper-node.js',
+      config.runtimeScriptUrl || config.jsPath || 'wasm/whisper-node.js',
       indexScriptUrl,
     )
-    var locateFileBaseUrl =
-      config.locateFileBaseUrl || resolveUrl('.', runtimeScriptUrl)
+    var wasmPath = resolveUrl(
+      config.wasmPath || 'wasm/whisper-node.wasm',
+      runtimeScriptUrl,
+    )
 
-    root.importScripts(runtimeScriptUrl)
-    root.importScripts(indexScriptUrl)
-
-    api = root.WhisperNodeWasm
+    api = WhisperNodeWasm
     if (!api) {
       throw new Error('Failed to load WhisperNodeWasm in worker')
     }
 
     var runtimeOptions = Object.assign({}, config.runtimeOptions || {})
+    runtimeOptions.worker = false
+    runtimeOptions.jsPath = runtimeScriptUrl
+    runtimeOptions.wasmPath = wasmPath
     runtimeOptions.mainScriptUrlOrBlob = runtimeScriptUrl
-    runtimeOptions.locateFile = function (path, prefix) {
-      return resolveUrl(path, locateFileBaseUrl || prefix)
-    }
 
     api.configureWasm(runtimeOptions)
     api.addNativeLogListener(function (level, text) {

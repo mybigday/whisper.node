@@ -3,6 +3,7 @@
   "version": "1.0.19",
   "description": "An another Node binding of whisper.cpp to make same API with whisper.rn as much as possible.",
   "main": "lib/index.js",
+  "browser": "lib/browser.mjs",
   "types": "lib/index.d.ts",
   "scripts": {
     "bootstrap": "npm install --omit=optional",
@@ -30,6 +31,7 @@
     "whisper.cpp/{examples,src,include}/**/*.{h,hpp,cpp,cc,c}",
     "whisper.cpp/ggml/include/*.h",
     "whisper.cpp/ggml/src/ggml-cpu/**/*.{h,hpp,cpp,cc,c}",
+    "lib/browser.mjs",
     "lib/*.js",
     "lib/*.ts",
     "lib/*.d.ts",

@@ -54,7 +54,7 @@ if (WHISPER_NODE_WASM)
   add_subdirectory("whisper.cpp")
 
   set(WASM_TARGET whisper-node-wasm)
-  set(WASM_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/packages/node-whisper-wasm)
+  set(WASM_OUTPUT_DIR ${CMAKE_SOURCE_DIR}/packages/node-whisper-wasm/wasm)
 
   add_executable(${WASM_TARGET}
     "src/wasm/emscripten.cpp"
@@ -81,6 +81,7 @@ if (WHISPER_NODE_WASM)
     "-pthread"
     "--bind"
     "-sMODULARIZE=1"
+    "-sEXPORT_ES6=1"
     "-sEXPORT_NAME=createWhisperNodeModule"
     "-sENVIRONMENT=web,worker"
     "-sUSE_PTHREADS=1"
