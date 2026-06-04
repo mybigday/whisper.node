@@ -246,7 +246,7 @@ const createWhisperNodeApi = function (root) {
             }
           }
           options.printErr = function (text) {
-            emitLog('ERROR', String(text))
+            emitLog('INFO', String(text))
             if (typeof userPrintErr === 'function') {
               userPrintErr(text)
             }
