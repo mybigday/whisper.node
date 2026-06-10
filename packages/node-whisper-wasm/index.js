@@ -1055,9 +1055,18 @@ const createWhisperNodeApi = function (root) {
       return decodeAudioBuffer(buffer)
     }
 
-    function validateWebGpu(runtime, useGpu) {
+    function warnWebGpuCpuFallback(error) {
+      var reason = error && error.message ? error.message : String(error)
+      console.warn(
+        '[whisper.node] WebGPU WASM load failed (' +
+          reason +
+          '); falling back to CPU WASM',
+      )
+    }
+
+    function resolveWhisperGpu(runtime, useGpu) {
       if (!useGpu) {
-        return
+        return false
       }
 
       if (
@@ -1065,14 +1074,22 @@ const createWhisperNodeApi = function (root) {
         typeof runtime.__wasm_webgpu_enabled !== 'function' ||
         !runtime.__wasm_webgpu_enabled()
       ) {
-        throw new Error(
-          'This @fugood/node-whisper-wasm build was not compiled with GGML_WEBGPU=ON',
+        warnWebGpuCpuFallback(
+          new Error(
+            'This @fugood/node-whisper-wasm build was not compiled with GGML_WEBGPU=ON',
+          ),
         )
+        return false
       }
 
       if (!root.navigator || !root.navigator.gpu) {
-        throw new Error('WebGPU was requested, but navigator.gpu is not available')
+        warnWebGpuCpuFallback(
+          new Error('WebGPU was requested, but navigator.gpu is not available'),
+        )
+        return false
       }
+
+      return true
     }
 
     function WhisperContext(options) {
@@ -1188,24 +1205,36 @@ const createWhisperNodeApi = function (root) {
       options = options || {}
       var modelSource = options.filePath || options.modelUrl
       var runtime = await loadRuntime()
-      var useGpu = options.useGpu === true
-
-      validateWebGpu(runtime, useGpu)
+      var useGpu = resolveWhisperGpu(runtime, options.useGpu === true)
 
       var model = await ensureModel(runtime, modelSource, 'whisper', options)
-      var init = unwrapWasmResult(
-        await runtime.__wasm_init_whisper(
-          model.virtualPath,
-          useGpu,
-          options.useFlashAttn === true,
-        ),
-      )
+      var useFlashAttn = useGpu && options.useFlashAttn === true
+      var init
+      try {
+        init = unwrapWasmResult(
+          await runtime.__wasm_init_whisper(
+            model.virtualPath,
+            useGpu,
+            useFlashAttn,
+          ),
+        )
+      } catch (error) {
+        if (!useGpu) {
+          throw error
+        }
+        warnWebGpuCpuFallback(error)
+        useGpu = false
+        useFlashAttn = false
+        init = unwrapWasmResult(
+          await runtime.__wasm_init_whisper(model.virtualPath, false, false),
+        )
+      }
 
       return new WhisperContextInstance(runtime, init.id, {
         filePath: modelSource,
         wasmFilePath: model.virtualPath,
         useGpu: useGpu,
-        useFlashAttn: options.useFlashAttn === true,
+        useFlashAttn: useFlashAttn,
         bytes: model.bytes,
         cacheHit: model.cacheHit,
         cacheStored: model.cacheStored,
