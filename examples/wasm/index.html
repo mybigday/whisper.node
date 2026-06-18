@@ -466,7 +466,8 @@
 
           await WhisperNodeWasm.toggleNativeLog(true)
 
-          const toLocalUrl = (url) => `/proxy?url=${encodeURIComponent(url)}`
+          const toLocalUrl = (url) =>
+            /^https?:\/\//i.test(url) ? `/proxy?url=${encodeURIComponent(url)}` : url
 
           write('Loading whisper model')
           const whisper = await timed(
