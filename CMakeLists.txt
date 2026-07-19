@@ -76,7 +76,7 @@ if (WHISPER_NODE_WASM)
     "whisper.cpp/ggml/include"
   )
 
-  target_link_libraries(${WASM_TARGET} PRIVATE whisper)
+  target_link_libraries(${WASM_TARGET} PRIVATE whisper parakeet)
 
   set_target_properties(${WASM_TARGET} PROPERTIES
     OUTPUT_NAME ${WASM_OUTPUT_NAME}
@@ -253,6 +253,8 @@ file(
     "src/common.cpp"
     "src/WhisperContext.cpp"
     "src/WhisperContext.h"
+    "src/ParakeetContext.cpp"
+    "src/ParakeetContext.h"
 )
 list(APPEND SOURCE_FILES "whisper.cpp/examples/common-whisper.cpp")
 
@@ -274,7 +276,7 @@ endif()
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES} ${CMAKE_JS_SRC})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
-target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB} whisper ggml ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB} whisper parakeet ggml ${CMAKE_THREAD_LIBS_INIT})
 
 add_custom_target(copy_assets ALL DEPENDS ${PROJECT_NAME})
 

@@ -99,6 +99,15 @@
       </label>
 
       <label>
+        Parakeet model URL (optional, skipped when empty)
+        <input
+          id="parakeet-model"
+          placeholder="https://huggingface.co/ggml-org/parakeet-GGUF/resolve/main/ggml-parakeet-tdt-0.6b-v3-q4_0.bin"
+          value=""
+        />
+      </label>
+
+      <label>
         Audio URL
         <input
           id="audio-url"
@@ -447,6 +456,7 @@
 
         const whisperModel = document.getElementById('whisper-model').value
         const vadModel = document.getElementById('vad-model').value
+        const parakeetModel = document.getElementById('parakeet-model').value.trim()
         const audioUrl = document.getElementById('audio-url').value
         const maxModelBytes = Number(document.getElementById('max-model-bytes').value)
         const cacheModel = document.getElementById('cache-model').checked
@@ -539,6 +549,38 @@
           )
           write('VAD result', segments)
           await timed('VAD release', () => vad.release())
+
+          if (parakeetModel) {
+            write('Loading parakeet model')
+            const parakeet = await timed(
+              'Parakeet model load',
+              () => WhisperNodeWasm.initParakeet({
+                filePath: toLocalUrl(parakeetModel),
+                maxModelBytes,
+                cacheModel,
+                useGpu,
+              }),
+              (context) => modelCacheDetails(context.getModelInfo()),
+            )
+            const parakeetInfo = parakeet.getModelInfo()
+            write('Parakeet model loaded', parakeetInfo)
+
+            write('Transcribing audio data with parakeet')
+            const parakeetResult = await timed(
+              'Parakeet transcribeData',
+              async () => {
+                const { promise } = parakeet.transcribeData(audioData, {
+                  maxThreads: effectiveMaxThreads,
+                })
+                return promise
+              },
+              (result) =>
+                `${result.segments.length} segments, ${effectiveMaxThreads} threads`,
+            )
+            write('Parakeet transcription result', parakeetResult)
+            await timed('Parakeet release', () => parakeet.release())
+          }
+
           appendTiming('Total', performance.now() - totalStartedAt)
         } catch (error) {
           write(error && error.stack ? error.stack : String(error))

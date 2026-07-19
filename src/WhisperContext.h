@@ -32,9 +32,9 @@ private:
 
     // Internal data
     std::string _info;
-    Napi::Object _meta;
+    Napi::ObjectReference _meta;
     WhisperSessionPtr _sess = nullptr;
-    
+
     // Job tracking for cancellation
     std::atomic<int> _nextJobId{1};
     std::unordered_map<int, std::shared_ptr<std::atomic<bool>>> _cancelFlags;
@@ -67,6 +67,6 @@ private:
 
     // Internal data
     std::string _info;
-    Napi::Object _meta;
+    Napi::ObjectReference _meta;
     WhisperVadSessionPtr _sess = nullptr;
 };

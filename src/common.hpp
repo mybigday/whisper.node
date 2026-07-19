@@ -9,11 +9,13 @@
 #include <functional>
 
 #include "whisper.h"
+#include "parakeet.h"
 
 // Forward declarations
 struct whisper_context;
 struct whisper_vad_context;
 struct whisper_full_params;
+struct parakeet_context;
 
 // Logging callback type
 typedef void (*whisper_log_callback)(const char* level, const char* text);
@@ -28,7 +30,9 @@ namespace whisper_utils {
     whisper_full_params createFullParamsFromOptions(const Napi::Object& options);
     int getNProcessorsFromOptions(const Napi::Object& options);
     whisper_vad_params createVadParamsFromOptions(const Napi::Object& options);
+    parakeet_full_params createParakeetParamsFromOptions(const Napi::Object& options);
     Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted = false);
+    Napi::Object createParakeetTranscribeResult(Napi::Env env, parakeet_context* ctx, bool aborted = false);
     Napi::Object createVadResult(Napi::Env env, bool hasSpeech, float speechProbability, const std::vector<std::pair<int64_t, int64_t>>& segments);
 
     std::vector<float> convertAudioBufferToFloat(Napi::ArrayBuffer& buffer);
@@ -69,6 +73,23 @@ public:
 
 using WhisperVadSessionPtr = std::shared_ptr<WhisperVadSession>;
 
+// Parakeet Session management
+class ParakeetSession {
+public:
+    std::string path;
+    parakeet_context* ctx;
+    std::mutex mtx;
+
+    ParakeetSession(const std::string& modelPath, parakeet_context* context);
+    ~ParakeetSession();
+
+    bool isValid() const;
+    void lock();
+    void unlock();
+};
+
+using ParakeetSessionPtr = std::shared_ptr<ParakeetSession>;
+
 // Logging utilities
 extern whisper_log_callback g_log_callback;
 extern bool g_log_enabled;
@@ -77,3 +98,4 @@ void whisper_log_callback_default(const char* level, const char* text);
 void setup_logging();
 void cleanup_logging();
 void cleanup_js_log_callback();  // Cleanup JavaScript logging callback
+void toggle_native_log(const Napi::CallbackInfo& info);  // Shared static toggleNativeLog implementation

@@ -14,6 +14,13 @@ export interface NativeVadContextOptions {
   maxModelBytes?: number,
 }
 
+export interface NativeParakeetContextOptions {
+  filePath: string,
+  modelUrl?: string,
+  useGpu?: boolean,
+  maxModelBytes?: number,
+}
+
 export interface TranscribeOptions {
   language?: string
   translate?: boolean
@@ -46,6 +53,13 @@ export interface TranscribeNewSegmentsResult {
   totalNNew: number
   result: string
   segments: TranscribeResult['segments']
+}
+
+export interface ParakeetTranscribeOptions {
+  /** Number of threads to use during computation. */
+  maxThreads?: number
+  /** Override the model audio context size (0 uses the model default). */
+  audioCtx?: number
 }
 
 export interface TranscribeResult {
@@ -122,6 +136,39 @@ export interface WhisperContext {
   ): void
 }
 
+export interface ParakeetContext {
+  new (options: NativeParakeetContextOptions): ParakeetContext
+  transcribe(
+    filePath: string,
+    options?: ParakeetTranscribeOptions,
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
+  transcribeFile(
+    filePath: string,
+    options?: ParakeetTranscribeOptions,
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
+  transcribeData(
+    audioData: ArrayBuffer,
+    options?: ParakeetTranscribeOptions,
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
+  release(): Promise<void>
+  getModelInfo(): object
+
+  // static methods
+  toggleNativeLog(
+    enable: boolean,
+    callback?: (level: string, text: string) => void,
+  ): void
+}
+
 export interface WhisperVadContext {
   new (options: NativeVadContextOptions): WhisperVadContext
   detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
@@ -143,6 +190,7 @@ export interface WhisperVadContext {
 export interface Module {
   WhisperContext: WhisperContext
   WhisperVadContext: WhisperVadContext
+  ParakeetContext: ParakeetContext
 }
 
 export type LibVariant = 'default' | 'vulkan' | 'cuda'

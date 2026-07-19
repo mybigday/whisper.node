@@ -190,6 +190,46 @@ import WhisperNodeWasm from './index.js'
         delete contexts[args[0]]
         return { ok: true }
 
+      case 'initParakeet': {
+        var parakeet = await api.initParakeet(args[0] || {})
+        var parakeetId = nextContextId++
+        contexts[parakeetId] = {
+          type: 'parakeet',
+          context: parakeet,
+        }
+        return {
+          id: parakeetId,
+          meta: parakeet.getModelInfo(),
+        }
+      }
+
+      case 'parakeetTranscribeData': {
+        if (cancelledRequests[message.id]) {
+          return abortedResult()
+        }
+        var parakeetDataContext = getContext(args[0], 'parakeet')
+        return runTranscribeOperation(
+          message.id,
+          parakeetDataContext.transcribeData(args[1], args[2] || {}),
+        )
+      }
+
+      case 'parakeetTranscribeFile': {
+        if (cancelledRequests[message.id]) {
+          return abortedResult()
+        }
+        var parakeetFileContext = getContext(args[0], 'parakeet')
+        return runTranscribeOperation(
+          message.id,
+          parakeetFileContext.transcribeFile(args[1], args[2] || {}),
+        )
+      }
+
+      case 'releaseParakeet':
+        await getContext(args[0], 'parakeet').release()
+        delete contexts[args[0]]
+        return { ok: true }
+
       case 'initWhisperVad': {
         var vad = await api.initWhisperVad(args[0] || {})
         var vadId = nextContextId++

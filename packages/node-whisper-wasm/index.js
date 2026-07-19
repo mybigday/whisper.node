@@ -1340,6 +1340,244 @@ const createWhisperNodeApi = function (root) {
       return Promise.resolve()
     }
 
+    function ParakeetContext(options) {
+      if (shouldUseWorker(options || {})) {
+        return createWorkerParakeetContext(options || {})
+      }
+      return createParakeetContext(options)
+    }
+
+    ParakeetContext.toggleNativeLog = toggleNativeLog
+    ParakeetContext.loadModelInfo = function (path) {
+      return {
+        path: path,
+        type: 'parakeet',
+      }
+    }
+
+    async function createWorkerParakeetContext(options) {
+      var proxy = await getWorkerProxy()
+      if (!proxy) {
+        return createParakeetContext(options)
+      }
+
+      var created = await proxy.request('initParakeet', [options || {}])
+      created.meta.worker = true
+      return new WorkerParakeetContextInstance(proxy, created.id, created.meta)
+    }
+
+    function WorkerParakeetContextInstance(proxy, id, meta) {
+      this._proxy = proxy
+      this._id = id
+      this._meta = meta
+      this._released = false
+    }
+
+    WorkerParakeetContextInstance.prototype._assertValid = function () {
+      if (this._released) {
+        throw new Error('Invalid parakeet context')
+      }
+    }
+
+    WorkerParakeetContextInstance.prototype.getModelInfo = function () {
+      return this._meta
+    }
+
+    WorkerParakeetContextInstance.prototype._transcribeWorker = function (
+      method,
+      args,
+      transfer,
+    ) {
+      this._assertValid()
+
+      var cancelled = false
+      var operation = this._proxy.requestOperation(method, args, transfer, {})
+      var proxy = this._proxy
+
+      return {
+        _requestId: operation.id,
+        stop: function () {
+          cancelled = true
+          proxy.cancel(operation.id)
+          return Promise.resolve()
+        },
+        promise: operation.promise.then(function (result) {
+          if (cancelled) {
+            result.isAborted = true
+          }
+          return result
+        }),
+      }
+    }
+
+    WorkerParakeetContextInstance.prototype.transcribeData = function (
+      audioData,
+      options,
+    ) {
+      var audio = copyFloat32Audio(audioData)
+      return this._transcribeWorker(
+        'parakeetTranscribeData',
+        [this._id, audio, normalizeThreadOptions(options)],
+        [audio.buffer],
+      )
+    }
+
+    WorkerParakeetContextInstance.prototype.transcribeFile = function (
+      filePath,
+      options,
+    ) {
+      return this._transcribeWorker(
+        'parakeetTranscribeFile',
+        [this._id, filePath, normalizeThreadOptions(options)],
+        [],
+      )
+    }
+
+    WorkerParakeetContextInstance.prototype.transcribe =
+      WorkerParakeetContextInstance.prototype.transcribeFile
+
+    WorkerParakeetContextInstance.prototype.release = async function () {
+      if (!this._released) {
+        await this._proxy.request('releaseParakeet', [this._id])
+        this._released = true
+      }
+    }
+
+    async function createParakeetContext(options) {
+      options = options || {}
+      var modelSource = options.filePath || options.modelUrl
+      var runtime = await loadRuntime()
+      if (typeof runtime.__wasm_init_parakeet !== 'function') {
+        throw new Error(
+          'ParakeetContext is not available in this @fugood/node-whisper-wasm build, please update the package',
+        )
+      }
+      var useGpu = resolveWhisperGpu(runtime, options.useGpu === true)
+
+      var model = await ensureModel(runtime, modelSource, 'parakeet', options)
+      var init
+      try {
+        init = unwrapWasmResult(
+          await runtime.__wasm_init_parakeet(model.virtualPath, useGpu),
+        )
+      } catch (error) {
+        if (!useGpu) {
+          throw error
+        }
+        warnWebGpuCpuFallback(error)
+        useGpu = false
+        init = unwrapWasmResult(
+          await runtime.__wasm_init_parakeet(model.virtualPath, false),
+        )
+      }
+
+      return new ParakeetContextInstance(runtime, init.id, {
+        filePath: modelSource,
+        wasmFilePath: model.virtualPath,
+        useGpu: useGpu,
+        bytes: model.bytes,
+        cacheHit: model.cacheHit,
+        cacheStored: model.cacheStored,
+        cacheName: model.cacheName,
+        cacheKey: model.cacheKey,
+        wasm: true,
+      })
+    }
+
+    function ParakeetContextInstance(runtime, id, meta) {
+      this._runtime = runtime
+      this._id = id
+      this._meta = meta
+      this._released = false
+    }
+
+    ParakeetContextInstance.prototype._assertValid = function () {
+      if (this._released) {
+        throw new Error('Invalid parakeet context')
+      }
+    }
+
+    ParakeetContextInstance.prototype.getModelInfo = function () {
+      return this._meta
+    }
+
+    ParakeetContextInstance.prototype._transcribeFloat32 = function (
+      audio,
+      options,
+      isCancelled,
+    ) {
+      this._assertValid()
+
+      if (isCancelled && isCancelled()) {
+        return Promise.resolve(abortedResult())
+      }
+
+      var runtime = this._runtime
+      var id = this._id
+      return defer(async function () {
+        if (isCancelled && isCancelled()) {
+          return abortedResult()
+        }
+
+        var result = unwrapWasmResult(
+          await runtime.__wasm_transcribe_parakeet(
+            id,
+            audio,
+            normalizeThreadOptions(options, runtime),
+          ),
+        )
+        if (isCancelled && isCancelled()) {
+          result.isAborted = true
+        }
+        return result
+      })
+    }
+
+    ParakeetContextInstance.prototype.transcribeData = function (audioData, options) {
+      var cancelled = false
+      var audio = toFloat32Audio(audioData)
+      return {
+        stop: function () {
+          cancelled = true
+          return Promise.resolve()
+        },
+        promise: this._transcribeFloat32(audio, options, function () {
+          return cancelled
+        }),
+      }
+    }
+
+    ParakeetContextInstance.prototype.transcribeFile = function (filePath, options) {
+      var cancelled = false
+      var self = this
+      return {
+        stop: function () {
+          cancelled = true
+          return Promise.resolve()
+        },
+        promise: (async function () {
+          if (cancelled) {
+            return abortedResult()
+          }
+          var audio = await loadAudioUrl(filePath)
+          return self._transcribeFloat32(audio, options, function () {
+            return cancelled
+          })
+        })(),
+      }
+    }
+
+    ParakeetContextInstance.prototype.transcribe =
+      ParakeetContextInstance.prototype.transcribeFile
+
+    ParakeetContextInstance.prototype.release = function () {
+      if (!this._released) {
+        this._runtime.__wasm_free_parakeet(this._id)
+        this._released = true
+      }
+      return Promise.resolve()
+    }
+
     function WhisperVadContext(options) {
       if (shouldUseWorker(options || {})) {
         return createWorkerWhisperVadContext(options || {})
@@ -1509,14 +1747,20 @@ const createWhisperNodeApi = function (root) {
       return Promise.resolve(new WhisperVadContext(options))
     }
 
+    function initParakeet(options) {
+      return Promise.resolve(new ParakeetContext(options))
+    }
+
     var api = {
       WhisperContext: WhisperContext,
       WhisperVadContext: WhisperVadContext,
+      ParakeetContext: ParakeetContext,
       configureWasm: configureWasm,
       loadWasmModule: loadRuntime,
       loadWhisperModule: loadWhisperModule,
       initWhisper: initWhisper,
       initWhisperVad: initWhisperVad,
+      initParakeet: initParakeet,
       toggleNativeLog: toggleNativeLog,
       addNativeLogListener: addNativeLogListener,
       isNativeLogEnabled: function () {
@@ -1537,6 +1781,7 @@ const api = createWhisperNodeApi(root)
 
 export const WhisperContext = api.WhisperContext
 export const WhisperVadContext = api.WhisperVadContext
+export const ParakeetContext = api.ParakeetContext
 export const DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES =
   api.DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES
 export const MAX_WASM_THREADS = api.MAX_WASM_THREADS
@@ -1545,6 +1790,7 @@ export const loadWasmModule = api.loadWasmModule
 export const loadWhisperModule = api.loadWhisperModule
 export const initWhisper = api.initWhisper
 export const initWhisperVad = api.initWhisperVad
+export const initParakeet = api.initParakeet
 export const toggleNativeLog = api.toggleNativeLog
 export const addNativeLogListener = api.addNativeLogListener
 export const isNativeLogEnabled = api.isNativeLogEnabled

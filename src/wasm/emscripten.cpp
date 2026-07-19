@@ -1,4 +1,5 @@
 #include "whisper.h"
+#include "parakeet.h"
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
@@ -52,10 +53,27 @@ struct VadSession {
     }
 };
 
+struct ParakeetSession {
+    std::string path;
+    parakeet_context * ctx = nullptr;
+    std::mutex mutex;
+
+    ParakeetSession(std::string model_path, parakeet_context * context)
+        : path(std::move(model_path)), ctx(context) {}
+
+    ~ParakeetSession() {
+        if (ctx) {
+            parakeet_free(ctx);
+            ctx = nullptr;
+        }
+    }
+};
+
 std::mutex g_sessions_mutex;
 int g_next_session_id = 1;
 std::map<int, std::unique_ptr<WhisperSession>> g_whisper_sessions;
 std::map<int, std::unique_ptr<VadSession>> g_vad_sessions;
+std::map<int, std::unique_ptr<ParakeetSession>> g_parakeet_sessions;
 
 val ok() {
     val result = val::object();
@@ -163,6 +181,15 @@ VadSession * get_vad_session(int id) {
     return it->second.get();
 }
 
+ParakeetSession * get_parakeet_session(int id) {
+    std::lock_guard<std::mutex> lock(g_sessions_mutex);
+    auto it = g_parakeet_sessions.find(id);
+    if (it == g_parakeet_sessions.end()) {
+        return nullptr;
+    }
+    return it->second.get();
+}
+
 whisper_full_params create_full_params(const val & options) {
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
 
@@ -200,6 +227,45 @@ whisper_vad_params create_vad_params(const val & options) {
     params.samples_overlap = get_float(options, "samplesOverlap", params.samples_overlap);
 
     return params;
+}
+
+parakeet_full_params create_parakeet_full_params(const val & options) {
+    parakeet_full_params params = parakeet_full_default_params(PARAKEET_SAMPLING_GREEDY);
+
+    params.n_threads = get_int(options, "maxThreads", default_thread_count());
+    params.audio_ctx = get_int(options, "audioCtx", params.audio_ctx);
+    params.no_context = true;
+
+    params.n_threads = clamp_thread_count(params.n_threads);
+
+    return params;
+}
+
+val create_parakeet_transcribe_result(parakeet_context * ctx, bool aborted) {
+    val result = ok();
+    result.set("isAborted", aborted);
+    result.set("language", "");
+
+    std::string text;
+    val segments = val::array();
+    if (ctx) {
+        const int n_segments = parakeet_full_n_segments(ctx);
+        for (int i = 0; i < n_segments; ++i) {
+            const char * segment_text = parakeet_full_get_segment_text(ctx, i);
+            std::string segment = segment_text ? segment_text : "";
+            text += segment;
+
+            val segment_obj = val::object();
+            segment_obj.set("text", segment);
+            segment_obj.set("t0", static_cast<double>(parakeet_full_get_segment_t0(ctx, i) * 10));
+            segment_obj.set("t1", static_cast<double>(parakeet_full_get_segment_t1(ctx, i) * 10));
+            segments.call<void>("push", segment_obj);
+        }
+    }
+    result.set("result", text);
+    result.set("segments", segments);
+
+    return result;
 }
 
 val create_segment(whisper_context * ctx, int index, bool tdrz_enable) {
@@ -357,6 +423,34 @@ val init_vad(const std::string & model_path, bool use_gpu, int n_threads) {
     return result;
 }
 
+val init_parakeet(const std::string & model_path, bool use_gpu) {
+    if (model_path.empty()) {
+        return error_result("Model path is required");
+    }
+
+    parakeet_context_params params = parakeet_context_default_params();
+    params.use_gpu = use_gpu;
+    params.gpu_device = 0;
+
+    parakeet_context * ctx = parakeet_init_from_file_with_params(model_path.c_str(), params);
+    if (!ctx) {
+        return error_result("Failed to initialize parakeet context");
+    }
+
+    int id = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_sessions_mutex);
+        id = g_next_session_id++;
+        g_parakeet_sessions[id] = std::make_unique<ParakeetSession>(model_path, ctx);
+    }
+
+    val result = ok();
+    result.set("id", id);
+    result.set("filePath", model_path);
+    result.set("useGpu", use_gpu);
+    return result;
+}
+
 void free_whisper(int id) {
     std::lock_guard<std::mutex> lock(g_sessions_mutex);
     g_whisper_sessions.erase(id);
@@ -365,6 +459,11 @@ void free_whisper(int id) {
 void free_vad(int id) {
     std::lock_guard<std::mutex> lock(g_sessions_mutex);
     g_vad_sessions.erase(id);
+}
+
+void free_parakeet(int id) {
+    std::lock_guard<std::mutex> lock(g_sessions_mutex);
+    g_parakeet_sessions.erase(id);
 }
 
 val transcribe(int id, const val & audio, const val & options) {
@@ -435,6 +534,38 @@ val transcribe(int id, const val & audio, const val & options) {
     }
 
     return create_transcribe_result(session->ctx, text.str(), false, params.tdrz_enable);
+}
+
+val transcribe_parakeet(int id, const val & audio, const val & options) {
+    ParakeetSession * session = get_parakeet_session(id);
+    if (!session || !session->ctx) {
+        return error_result("Invalid parakeet context");
+    }
+
+    std::vector<float> pcmf32 = copy_float32_array(audio);
+    if (pcmf32.empty()) {
+        return create_parakeet_transcribe_result(nullptr, false);
+    }
+
+    std::lock_guard<std::mutex> lock(session->mutex);
+    if (!session->ctx) {
+        return error_result("Parakeet context was destroyed");
+    }
+
+    parakeet_full_params params = create_parakeet_full_params(options);
+
+    const int result = parakeet_full(
+        session->ctx,
+        params,
+        pcmf32.data(),
+        static_cast<int>(pcmf32.size())
+    );
+
+    if (result != 0) {
+        return error_result("Parakeet transcription failed: " + std::to_string(result));
+    }
+
+    return create_parakeet_transcribe_result(session->ctx, false);
 }
 
 val detect_speech(int id, const val & audio, const val & options) {
@@ -589,6 +720,10 @@ EMSCRIPTEN_BINDINGS(whisper_node_wasm) {
     emscripten::function("__wasm_init_vad", &init_vad);
     emscripten::function("__wasm_free_vad", &free_vad);
     emscripten::function("__wasm_detect_speech", &detect_speech);
+
+    emscripten::function("__wasm_init_parakeet", &init_parakeet);
+    emscripten::function("__wasm_free_parakeet", &free_parakeet);
+    emscripten::function("__wasm_transcribe_parakeet", &transcribe_parakeet);
 
     emscripten::function("__wasm_system_info", &system_info);
     emscripten::function("__wasm_webgpu_enabled", &webgpu_enabled);

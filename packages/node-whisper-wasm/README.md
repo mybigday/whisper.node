@@ -4,9 +4,10 @@ Browser WASM implementation package for `@fugood/whisper.node`. Application
 code should import `@fugood/whisper.node`; this package is pulled in by the main
 package for browser builds.
 
-The package exposes the same high-level context API as the native packages, but
-model and audio file paths are fetched as URLs and copied into the Emscripten
-filesystem before inference.
+The package exposes the same high-level context API as the native packages
+(`initWhisper`, `initWhisperVad`, and `initParakeet`), but model and audio file
+paths are fetched as URLs and copied into the Emscripten filesystem before
+inference.
 
 ```js
 import { initWhisper } from '@fugood/whisper.node'

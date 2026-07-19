@@ -30,6 +30,11 @@ const requiredModels = [
     fileName: 'ggml-silero-v6.2.0.bin',
     url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin',
   },
+  {
+    name: 'parakeet-tdt-0.6b-v3-q4_0',
+    fileName: 'ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
+    url: 'https://huggingface.co/ggml-org/parakeet-GGUF/resolve/main/ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
+  },
 ]
 
 function formatBytes(bytes) {
