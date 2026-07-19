@@ -89,7 +89,8 @@ jobs:
             package: node-whisper-win32-x64
             toolchain: clang-cl
           # Windows x64 CUDA
-          - os: windows-latest
+          # CUDA 12.9 does not support the Visual Studio 2026 toolset on windows-latest.
+          - os: windows-2022
             arch: x64
             target: cuda
             package: node-whisper-win32-x64-cuda
