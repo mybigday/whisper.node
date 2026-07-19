@@ -1,4 +1,5 @@
 #include "WhisperContext.h"
+#include "ParakeetContext.h"
 #include <napi.h>
 
 // Forward declaration of our cleanup function
@@ -15,6 +16,7 @@ static Napi::Value register_cleanup(const Napi::CallbackInfo &info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   WhisperContext::Init(env, exports);
   WhisperVadContext::Init(env, exports);
+  ParakeetContext::Init(env, exports);
 
   // Register our cleanup handler for module unload
   exports.Set("__registerCleanup", Napi::Function::New(env, register_cleanup));

@@ -22,6 +22,17 @@ export interface NativeVadContextOptions {
   worker?: boolean
 }
 
+export interface NativeParakeetContextOptions {
+  filePath: string
+  modelUrl?: string
+  useGpu?: boolean
+  maxModelBytes?: number
+  cacheModel?: boolean
+  modelCacheName?: string
+  modelCacheKey?: string
+  worker?: boolean
+}
+
 export interface TranscribeOptions {
   language?: string
   translate?: boolean
@@ -59,6 +70,13 @@ export interface TranscribeResult {
     t1: number
   }>
   isAborted: boolean
+}
+
+export interface ParakeetTranscribeOptions {
+  /** Number of threads to use during computation. */
+  maxThreads?: number
+  /** Override the model audio context size (0 uses the model default). */
+  audioCtx?: number
 }
 
 export interface VadOptions {
@@ -111,6 +129,32 @@ export interface WhisperContext {
   getModelInfo(): object
 }
 
+export interface ParakeetContext {
+  transcribe(
+    filePath: string,
+    options?: ParakeetTranscribeOptions,
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
+  transcribeFile(
+    filePath: string,
+    options?: ParakeetTranscribeOptions,
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
+  transcribeData(
+    audioData: ArrayBuffer | ArrayBufferView | Float32Array,
+    options?: ParakeetTranscribeOptions,
+  ): {
+    stop: () => Promise<void>
+    promise: Promise<TranscribeResult>
+  }
+  release(): Promise<void>
+  getModelInfo(): object
+}
+
 export interface WhisperVadContext {
   detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadSegment[]>
@@ -132,6 +176,13 @@ export interface Module {
   }
   WhisperVadContext: {
     new (options: NativeVadContextOptions): Promise<WhisperVadContext>
+    toggleNativeLog(
+      enable: boolean,
+      callback?: (level: string, text: string) => void,
+    ): void | Promise<void>
+  }
+  ParakeetContext: {
+    new (options: NativeParakeetContextOptions): Promise<ParakeetContext>
     toggleNativeLog(
       enable: boolean,
       callback?: (level: string, text: string) => void,
@@ -161,6 +212,7 @@ export interface WasmRuntimeOptions {
 
 export declare const WhisperContext: Module['WhisperContext']
 export declare const WhisperVadContext: Module['WhisperVadContext']
+export declare const ParakeetContext: Module['ParakeetContext']
 export declare const DEFAULT_WASM_MODEL_SIZE_LIMIT_BYTES: number
 export declare const MAX_WASM_THREADS: number
 export declare const WASM_CONFIG_PATHS: {
@@ -182,6 +234,9 @@ export declare function initWhisper(
 export declare function initWhisperVad(
   options: NativeVadContextOptions,
 ): Promise<WhisperVadContext>
+export declare function initParakeet(
+  options: NativeParakeetContextOptions,
+): Promise<ParakeetContext>
 export declare function toggleNativeLog(
   enable: boolean,
   callback?: (level: string, text: string) => void,
@@ -194,11 +249,13 @@ export declare function isNativeLogEnabled(): boolean
 declare const _default: {
   WhisperContext: typeof WhisperContext
   WhisperVadContext: typeof WhisperVadContext
+  ParakeetContext: typeof ParakeetContext
   configureWasm: typeof configureWasm
   loadWasmModule: typeof loadWasmModule
   loadWhisperModule: typeof loadWhisperModule
   initWhisper: typeof initWhisper
   initWhisperVad: typeof initWhisperVad
+  initParakeet: typeof initParakeet
   toggleNativeLog: typeof toggleNativeLog
   addNativeLogListener: typeof addNativeLogListener
   isNativeLogEnabled: typeof isNativeLogEnabled

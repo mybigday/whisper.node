@@ -29,6 +29,7 @@ void cleanup_logging() {
     g_log_callback = nullptr;
     g_log_enabled = false;
     whisper_log_set(nullptr, nullptr);
+    parakeet_log_set(nullptr, nullptr);
     cleanup_js_log_callback();
 }
 
@@ -77,6 +78,30 @@ void WhisperVadSession::lock() {
 }
 
 void WhisperVadSession::unlock() {
+    mtx.unlock();
+}
+
+// ParakeetSession implementation
+ParakeetSession::ParakeetSession(const std::string& modelPath, parakeet_context* context)
+    : path(modelPath), ctx(context) {
+}
+
+ParakeetSession::~ParakeetSession() {
+    if (ctx) {
+        parakeet_free(ctx);
+        ctx = nullptr;
+    }
+}
+
+bool ParakeetSession::isValid() const {
+    return ctx != nullptr;
+}
+
+void ParakeetSession::lock() {
+    mtx.lock();
+}
+
+void ParakeetSession::unlock() {
     mtx.unlock();
 }
 
@@ -189,6 +214,30 @@ whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
     return params;
 }
 
+parakeet_full_params createParakeetParamsFromOptions(const Napi::Object& options) {
+    parakeet_full_params params = parakeet_full_default_params(PARAKEET_SAMPLING_GREEDY);
+    const int hardware = static_cast<int>(std::thread::hardware_concurrency());
+    params.n_threads = std::max(1, std::min(8, hardware == 0 ? 1 : hardware));
+    params.no_context = true;
+
+    auto propNames = options.GetPropertyNames();
+    for (uint32_t i = 0; i < propNames.Length(); i++) {
+        auto key = propNames.Get(i).As<Napi::String>().Utf8Value();
+        auto value = options.Get(key);
+
+        if (key == "maxThreads" && value.IsNumber()) {
+            int nThreads = value.As<Napi::Number>().Int32Value();
+            if (nThreads > 0) {
+                params.n_threads = nThreads;
+            }
+        } else if (key == "audioCtx" && value.IsNumber()) {
+            params.audio_ctx = value.As<Napi::Number>().Int32Value();
+        }
+    }
+
+    return params;
+}
+
 Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted) {
     auto result = Napi::Object::New(env);
     result.Set("result", text);
@@ -211,6 +260,33 @@ Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const s
             segments.Set(i, segment);
         }
     }
+    result.Set("segments", segments);
+
+    return result;
+}
+
+Napi::Object createParakeetTranscribeResult(Napi::Env env, parakeet_context* ctx, bool aborted) {
+    auto result = Napi::Object::New(env);
+    result.Set("isAborted", aborted);
+    result.Set("language", "");
+
+    std::string text;
+    auto segments = Napi::Array::New(env);
+    if (ctx) {
+        int n_segments = parakeet_full_n_segments(ctx);
+        for (int i = 0; i < n_segments; i++) {
+            const char* segment_text = parakeet_full_get_segment_text(ctx, i);
+            std::string segment = segment_text ? segment_text : "";
+            text += segment;
+
+            auto segmentObj = Napi::Object::New(env);
+            segmentObj.Set("text", segment);
+            segmentObj.Set("t0", Napi::Number::New(env, static_cast<double>(parakeet_full_get_segment_t0(ctx, i) * 10))); // Convert to milliseconds
+            segmentObj.Set("t1", Napi::Number::New(env, static_cast<double>(parakeet_full_get_segment_t1(ctx, i) * 10))); // Convert to milliseconds
+            segments.Set(i, segmentObj);
+        }
+    }
+    result.Set("result", text);
     result.Set("segments", segments);
 
     return result;

@@ -11,6 +11,7 @@ declare module '@fugood/node-whisper-wasm' {
   export function isNativeLogEnabled(): boolean
   export const WhisperContext: Module['WhisperContext']
   export const WhisperVadContext: Module['WhisperVadContext']
+  export const ParakeetContext: Module['ParakeetContext']
   const module: Module & {
     default?: Module
     toggleNativeLog: typeof toggleNativeLog

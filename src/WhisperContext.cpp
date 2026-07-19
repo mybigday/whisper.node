@@ -389,11 +389,12 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
 
     _sess = std::make_shared<WhisperSession>(modelPath, ctx);
 
-    // Build metadata
-    _meta = Napi::Object::New(env);
-    _meta.Set("filePath", modelPath);
-    _meta.Set("useGpu", useGpu);
-    _meta.Set("useFlashAttn", useFlashAttn);
+    // Build metadata (persistent reference so it outlives the constructor scope)
+    auto meta = Napi::Object::New(env);
+    meta.Set("filePath", modelPath);
+    meta.Set("useGpu", useGpu);
+    meta.Set("useFlashAttn", useFlashAttn);
+    _meta = Napi::Persistent(meta);
 }
 
 WhisperContext::~WhisperContext() {
@@ -473,11 +474,12 @@ void cleanup_js_log_callback() {
     }
 }
 
-void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
+// Shared implementation for the static toggleNativeLog methods
+void toggle_native_log(const Napi::CallbackInfo& info) {
     if (info.Length() < 1) return;
 
     bool enable = whisper_utils::getBool(info[0], false);
-    
+
     if (enable) {
         cleanup_js_log_callback();
         if (info.Length() >= 2 && info[1].IsFunction()) {
@@ -491,17 +493,24 @@ void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
             );
             g_log_callback = whisper_log_callback_js;
             whisper_log_set(whisper_native_log_callback, nullptr);
+            parakeet_log_set(whisper_native_log_callback, nullptr);
         } else {
             g_log_callback = nullptr;
             whisper_log_set(nullptr, nullptr);
+            parakeet_log_set(nullptr, nullptr);
         }
         g_log_enabled = true;
     } else {
         g_log_enabled = false;
         g_log_callback = nullptr;
         whisper_log_set(nullptr, nullptr);
+        parakeet_log_set(nullptr, nullptr);
         cleanup_js_log_callback();
     }
+}
+
+void WhisperContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
+    toggle_native_log(info);
 }
 
 Napi::Value WhisperContext::ModelInfo(const Napi::CallbackInfo& info) {
@@ -539,7 +548,10 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
 
 
 Napi::Value WhisperContext::GetModelInfo(const Napi::CallbackInfo& info) {
-    return _meta;
+    if (_meta.IsEmpty()) {
+        return info.Env().Null();
+    }
+    return _meta.Value();
 }
 
 Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
@@ -961,45 +973,19 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
     }
     _sess = std::make_shared<WhisperVadSession>(modelPath, ctx);
 
-    // Build metadata
-    _meta = Napi::Object::New(env);
-    _meta.Set("filePath", modelPath);
-    _meta.Set("useGpu", useGpu);
-    _meta.Set("nThreads", nThreads);
+    // Build metadata (persistent reference so it outlives the constructor scope)
+    auto meta = Napi::Object::New(env);
+    meta.Set("filePath", modelPath);
+    meta.Set("useGpu", useGpu);
+    meta.Set("nThreads", nThreads);
+    _meta = Napi::Persistent(meta);
 }
 
 WhisperVadContext::~WhisperVadContext() {
 }
 
 void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
-    if (info.Length() < 1) return;
-
-    bool enable = whisper_utils::getBool(info[0], false);
-    
-    if (enable) {
-        cleanup_js_log_callback();
-        if (info.Length() >= 2 && info[1].IsFunction()) {
-            auto callback = info[1].As<Napi::Function>();
-            g_js_log_callback = Napi::ThreadSafeFunction::New(
-                info.Env(),
-                callback,
-                "whisper_log_callback",
-                0,
-                1
-            );
-            g_log_callback = whisper_log_callback_js;
-            whisper_log_set(whisper_native_log_callback, nullptr);
-        } else {
-            g_log_callback = nullptr;
-            whisper_log_set(nullptr, nullptr);
-        }
-        g_log_enabled = true;
-    } else {
-        g_log_enabled = false;
-        g_log_callback = nullptr;
-        whisper_log_set(nullptr, nullptr);
-        cleanup_js_log_callback();
-    }
+    toggle_native_log(info);
 }
 
 Napi::Value WhisperVadContext::ModelInfo(const Napi::CallbackInfo& info) {
@@ -1034,7 +1020,10 @@ void WhisperVadContext::Init(Napi::Env env, Napi::Object& exports) {
 }
 
 Napi::Value WhisperVadContext::GetModelInfo(const Napi::CallbackInfo& info) {
-    return _meta;
+    if (_meta.IsEmpty()) {
+        return info.Env().Null();
+    }
+    return _meta.Value();
 }
 
 Napi::Value WhisperVadContext::DetectSpeechFile(const Napi::CallbackInfo& info) {

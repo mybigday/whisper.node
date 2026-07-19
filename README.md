@@ -71,6 +71,41 @@ const result2 = await promise2
 await context.release()
 ```
 
+### NVIDIA Parakeet TDT
+
+`ParakeetContext` runs NVIDIA's Parakeet TDT 0.6B v3 model through the Parakeet API included in whisper.cpp. The v3 model supports English plus 24 other European languages.
+
+Download a GGUF model from [ggml-org/parakeet-GGUF](https://huggingface.co/ggml-org/parakeet-GGUF) before initializing the context:
+
+| Model | Approximate size |
+| --- | ---: |
+| `ggml-parakeet-tdt-0.6b-v3-q4_0.bin` | 356 MB |
+| `ggml-parakeet-tdt-0.6b-v3-q4_k.bin` | 416 MB |
+| `ggml-parakeet-tdt-0.6b-v3-q8_0.bin` | 669 MB |
+| `ggml-parakeet-tdt-0.6b-v3-f16.bin` | 1.26 GB |
+
+```js
+import { initParakeet } from '@fugood/whisper.node'
+
+const parakeetContext = await initParakeet({
+  filePath: 'path/to/ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
+  useGpu: true,
+}, libVariant)
+
+// transcribeFile / transcribeData return { stop, promise } like WhisperContext
+const { stop, promise } = parakeetContext.transcribeFile('audio.wav', {
+  maxThreads: 4,
+})
+const { result, segments, isAborted } = await promise
+
+// Cancel an in-flight transcription when needed:
+// await stop()
+
+await parakeetContext.release()
+```
+
+`transcribeData()` accepts raw signed 16-bit PCM as ArrayBuffer; raw audio must be mono at 16 kHz. Whisper-specific options (language, prompt, callbacks) are not supported, use `maxThreads` and `audioCtx` instead.
+
 ### Voice Activity Detection (VAD)
 
 ```js
@@ -118,9 +153,9 @@ strings. The same helpers are available in Node.js and browser WASM builds.
 
 ### Browser WASM
 
-The browser package keeps the same promise-based `initWhisper` and
-`initWhisperVad` entry points. In browsers, `filePath` is treated as a URL and
-the model is fetched into the WASM filesystem.
+The browser package keeps the same promise-based `initWhisper`,
+`initWhisperVad`, and `initParakeet` entry points. In browsers, `filePath` is
+treated as a URL and the model is fetched into the WASM filesystem.
 
 ```js
 import { initWhisper, initWhisperVad } from '@fugood/whisper.node'

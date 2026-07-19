@@ -2,9 +2,12 @@ import { loadModule } from './binding';
 import type {
   WhisperContext,
   WhisperVadContext,
+  ParakeetContext,
   NativeContextOptions,
   NativeVadContextOptions,
+  NativeParakeetContextOptions,
   TranscribeOptions,
+  ParakeetTranscribeOptions,
   TranscribeResult,
   TranscribeNewSegmentsResult,
   VadOptions,
@@ -18,9 +21,12 @@ import type {
 export type {
   WhisperContext,
   WhisperVadContext,
+  ParakeetContext,
   NativeContextOptions,
   NativeVadContextOptions,
+  NativeParakeetContextOptions,
   TranscribeOptions,
+  ParakeetTranscribeOptions,
   TranscribeResult,
   TranscribeNewSegmentsResult,
   VadOptions,
@@ -81,9 +87,12 @@ const refreshNativeLogSetup = () => {
     if (logEnabled) {
       moduleCache.WhisperContext.toggleNativeLog(logEnabled, logCallback)
       moduleCache.WhisperVadContext.toggleNativeLog(logEnabled, logCallback)
+      // Older prebuilt packages may not export ParakeetContext
+      moduleCache.ParakeetContext?.toggleNativeLog(logEnabled, logCallback)
     } else {
       moduleCache.WhisperContext.toggleNativeLog(false)
       moduleCache.WhisperVadContext.toggleNativeLog(false)
+      moduleCache.ParakeetContext?.toggleNativeLog(false)
     }
   }
 }
@@ -153,12 +162,34 @@ export const initWhisperVad = async (
     | Promise<WhisperVadContext>);
 };
 
+/**
+ * Create a new ParakeetContext for transcription with NVIDIA Parakeet models
+ * @param options - Configuration options for the parakeet model
+ * @param variant - Optional backend variant to use
+ * @returns Promise that resolves to a ParakeetContext instance
+ */
+export const initParakeet = async (
+  options: NativeParakeetContextOptions,
+  variant?: LibVariant
+): Promise<ParakeetContext> => {
+  const module = await loadWhisperModule(variant);
+  if (!module.ParakeetContext) {
+    throw new Error(
+      'ParakeetContext is not available in the loaded whisper.node binary, please update the platform package',
+    );
+  }
+  return await (new module.ParakeetContext(options) as
+    | ParakeetContext
+    | Promise<ParakeetContext>);
+};
+
 export const isNativeLogEnabled = () => logEnabled
 
 // Default export
 export default {
   initWhisper,
   initWhisperVad,
+  initParakeet,
   loadWhisperModule,
   toggleNativeLog,
   addNativeLogListener,
