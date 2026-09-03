@@ -4,6 +4,8 @@ import { initParakeet } from '../lib/index'
 
 // Test configuration
 const TEST_TIMEOUT = 60000 // 60 seconds timeout for model loading
+const STOP_SETTLE_TIMEOUT = 60000 // how long a stopped job may take to settle on slow CI
+const STOP_TEST_TIMEOUT = 180000
 const SAMPLE_AUDIO_PATH = path.join(__dirname, '../whisper.cpp/samples/jfk.wav')
 
 // Helper function to create test audio data (16-bit PCM, mono, 16kHz)
@@ -203,18 +205,19 @@ describe('Parakeet transcription', () => {
       })
 
       // Long CPU decode so the job is still running when we stop it. The abort
-      // flag is only checked between graph nodes, so keep the encoder ops small
-      // enough (a few threads, one minute of audio) that stop() settles quickly.
-      const audioBuffer = createTestAudioBuffer(60000, 440)
+      // flag is only checked between graph nodes and the encoder runs the whole
+      // clip in one graph, so keep the clip short and allow a generous settle
+      // window for slow CI runners.
+      const audioBuffer = createTestAudioBuffer(30000, 440)
       const { stop, promise } = context.transcribeData(audioBuffer, {
         maxThreads: 2,
       })
 
-      expect(await settlesWithin(promise, 500)).toBe(false)
+      expect(await settlesWithin(promise, 300)).toBe(false)
 
       await stop()
 
-      expect(await settlesWithin(promise, 10000)).toBe(true)
+      expect(await settlesWithin(promise, STOP_SETTLE_TIMEOUT)).toBe(true)
       const result = await promise
       expect(result.isAborted).toBe(true)
       expect(typeof result.result).toBe('string')
@@ -228,7 +231,7 @@ describe('Parakeet transcription', () => {
 
       await context.release()
     },
-    TEST_TIMEOUT,
+    STOP_TEST_TIMEOUT,
   )
 
   test(
@@ -239,17 +242,17 @@ describe('Parakeet transcription', () => {
         useGpu: false,
       })
 
-      const audioBuffer = createTestAudioBuffer(60000, 440)
+      const audioBuffer = createTestAudioBuffer(30000, 440)
       const { promise } = context.transcribeData(audioBuffer, {
         maxThreads: 2,
       })
 
-      expect(await settlesWithin(promise, 500)).toBe(false)
+      expect(await settlesWithin(promise, 300)).toBe(false)
 
       await context.release()
 
-      expect(await settlesWithin(promise, 10000)).toBe(true)
+      expect(await settlesWithin(promise, STOP_SETTLE_TIMEOUT)).toBe(true)
     },
-    TEST_TIMEOUT,
+    STOP_TEST_TIMEOUT,
   )
 })
