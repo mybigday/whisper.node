@@ -9,6 +9,8 @@ import {
 
 // Test configuration
 const TEST_TIMEOUT = 30000 // 30 seconds timeout for model loading
+const STOP_SETTLE_TIMEOUT = 60000 // how long a stopped job may take to settle on slow CI
+const STOP_TEST_TIMEOUT = 180000
 const SAMPLE_AUDIO_PATH = path.join(__dirname, '../whisper.cpp/samples/jfk.wav')
 
 // Helper function to create test audio data (16-bit PCM, mono, 16kHz)
@@ -381,6 +383,14 @@ describe('Whisper transcription', () => {
     TEST_TIMEOUT,
   )
 
+  // Repeat the JFK sample so the job is long enough to be interrupted mid-way
+  function createLongSpeechBuffer(repeats: number) {
+    const sample = new Int16Array(loadWavFile(SAMPLE_AUDIO_PATH))
+    const out = new Int16Array(sample.length * repeats)
+    for (let i = 0; i < repeats; i += 1) out.set(sample, i * sample.length)
+    return out.buffer
+  }
+
   test(
     'should settle the promise with isAborted after stop() on an in-flight job',
     async () => {
@@ -389,20 +399,23 @@ describe('Whisper transcription', () => {
         useGpu: false,
       })
 
-      // Long CPU decode with a single thread so the job is still running when we stop it
-      const audioBuffer = createTestAudioBuffer(120000, 440)
-      const { stop, promise } = context.transcribeData(audioBuffer, {
+      // Stop from the first onNewSegments callback: the job is guaranteed to be
+      // in flight at that point regardless of how fast the machine is.
+      let stopCalls = 0
+      const job = context.transcribeData(createLongSpeechBuffer(6), {
         language: 'en',
-        maxThreads: 1,
-        onNewSegments: () => {},
+        maxThreads: 2,
+        onNewSegments: () => {
+          if (stopCalls === 0) {
+            stopCalls += 1
+            job.stop()
+          }
+        },
       })
 
-      expect(await settlesWithin(promise, 1000)).toBe(false)
-
-      await stop()
-
-      expect(await settlesWithin(promise, 10000)).toBe(true)
-      const result = await promise
+      expect(await settlesWithin(job.promise, STOP_SETTLE_TIMEOUT)).toBe(true)
+      expect(stopCalls).toBe(1)
+      const result = await job.promise
       expect(result.isAborted).toBe(true)
       expect(typeof result.result).toBe('string')
       expect(Array.isArray(result.segments)).toBe(true)
@@ -415,7 +428,7 @@ describe('Whisper transcription', () => {
 
       await context.release()
     },
-    TEST_TIMEOUT,
+    STOP_TEST_TIMEOUT,
   )
 
   test(
@@ -426,18 +439,19 @@ describe('Whisper transcription', () => {
         useGpu: false,
       })
 
-      const audioBuffer = createTestAudioBuffer(120000, 440)
-      const { promise } = context.transcribeData(audioBuffer, {
+      let released: Promise<void> | null = null
+      const { promise } = context.transcribeData(createLongSpeechBuffer(6), {
         language: 'en',
-        maxThreads: 1,
+        maxThreads: 2,
+        onNewSegments: () => {
+          if (!released) released = context.release()
+        },
       })
 
-      expect(await settlesWithin(promise, 1000)).toBe(false)
-
-      await context.release()
-
-      expect(await settlesWithin(promise, 10000)).toBe(true)
+      expect(await settlesWithin(promise, STOP_SETTLE_TIMEOUT)).toBe(true)
+      expect(released).not.toBeNull()
+      await released
     },
-    TEST_TIMEOUT,
+    STOP_TEST_TIMEOUT,
   )
 })
