@@ -79,7 +79,9 @@ protected:
     }
 
     void OnError(const Napi::Error& error) override {
-        AsyncWorker::OnError(error);
+        // The completion callback expects (error, result); the base OnError
+        // only passes one argument, which would leave the promise pending
+        Callback().Call({error.Value(), Env().Undefined()});
     }
 
 private:

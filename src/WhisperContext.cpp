@@ -58,7 +58,7 @@ protected:
 
         // Check if cancelled before starting
         if (cancelFlag_ && cancelFlag_->load()) {
-            SetError("Transcription cancelled");
+            aborted_ = true;
             return;
         }
 
@@ -78,7 +78,7 @@ protected:
 
         // Check if cancelled before processing
         if (cancelFlag_ && cancelFlag_->load()) {
-            SetError("Transcription cancelled");
+            aborted_ = true;
             return;
         }
 
@@ -90,6 +90,16 @@ protected:
         callbackCtx.cancelFlag = cancelFlag_;
         callbackCtx.totalNNew = 0;
         callbackCtx.tdrzEnable = params_.tdrz_enable;
+
+        // Wire the cancellation flag into the ggml abort callback so stop()
+        // interrupts the computation instead of waiting for completion
+        if (cancelFlag_) {
+            params_copy.abort_callback = [](void* user_data) -> bool {
+                auto* flag = static_cast<std::atomic<bool>*>(user_data);
+                return flag && flag->load();
+            };
+            params_copy.abort_callback_user_data = cancelFlag_.get();
+        }
 
         if (hasProgress_) {
             params_copy.progress_callback = [](struct whisper_context* /*ctx*/, struct whisper_state* /*state*/, int progress, void* user_data) {
@@ -176,13 +186,10 @@ protected:
             });
         }
 
-        // Check if cancelled after processing
-        if (cancelFlag_ && cancelFlag_->load()) {
-            SetError("Transcription cancelled");
-            return;
-        }
+        // A cancelled job resolves with isAborted=true and the segments decoded so far
+        aborted_ = cancelFlag_ && cancelFlag_->load();
 
-        if (result != 0) {
+        if (result != 0 && !aborted_) {
             SetError("Transcription failed");
             return;
         }
@@ -203,24 +210,16 @@ protected:
             return;
         }
 
-        // Check if cancelled
-        if (cancelFlag_ && cancelFlag_->load()) {
+        // Handle empty audio data / cancelled-before-start cases
+        if (audioData_.empty() || (aborted_ && resultText_.empty())) {
             CleanupCallbacks();
-            Callback().Call({Napi::Error::New(Env(), "Transcription cancelled").Value(), Env().Null()});
-            return;
-        }
-
-        // Handle empty audio data case
-        if (audioData_.empty()) {
-            CleanupCallbacks();
-            auto result = whisper_utils::createTranscribeResult(Env(), nullptr, resultText_, false);
+            auto result = whisper_utils::createTranscribeResult(Env(), nullptr, resultText_, aborted_);
             Callback().Call({Env().Null(), result});
             return;
         }
 
         std::lock_guard<std::mutex> lock(session_->mtx);
-        bool isAborted = cancelFlag_ && cancelFlag_->load();
-        auto result = whisper_utils::createTranscribeResult(Env(), session_->ctx, resultText_, isAborted);
+        auto result = whisper_utils::createTranscribeResult(Env(), session_->ctx, resultText_, aborted_);
 
         // Clean up callbacks BEFORE calling completion callback
         // This ensures BlockingCall callbacks complete before the promise resolves
@@ -231,7 +230,9 @@ protected:
 
     void OnError(const Napi::Error& error) override {
         CleanupCallbacks();
-        AsyncWorker::OnError(error);
+        // The completion callback expects (error, result); the base OnError
+        // only passes one argument, which would leave the promise pending
+        Callback().Call({error.Value(), Env().Undefined()});
     }
 
     void CleanupCallbacks() {
@@ -257,6 +258,7 @@ private:
     bool hasNewSegments_;
     std::string language_;
     std::string prompt_;
+    bool aborted_ = false;
 };
 
 // Helper class for async VAD

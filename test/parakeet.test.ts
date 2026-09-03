@@ -43,6 +43,18 @@ function loadWavFile(filePath: string) {
   )
 }
 
+// Resolves true if the promise settles (either way) within `ms`, false otherwise
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    const done = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    promise.then(done, done)
+  })
+}
+
 describe('Parakeet transcription', () => {
   const modelPath = path.join(
     __dirname,
@@ -181,4 +193,63 @@ describe('Parakeet transcription', () => {
 
     await expect(initParakeet({ filePath: invalidModelPath })).rejects.toThrow()
   })
+
+  test(
+    'should settle the promise with isAborted after stop() on an in-flight job',
+    async () => {
+      const context = await initParakeet({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      // Long CPU decode so the job is still running when we stop it. The abort
+      // flag is only checked between graph nodes, so keep the encoder ops small
+      // enough (a few threads, one minute of audio) that stop() settles quickly.
+      const audioBuffer = createTestAudioBuffer(60000, 440)
+      const { stop, promise } = context.transcribeData(audioBuffer, {
+        maxThreads: 2,
+      })
+
+      expect(await settlesWithin(promise, 500)).toBe(false)
+
+      await stop()
+
+      expect(await settlesWithin(promise, 10000)).toBe(true)
+      const result = await promise
+      expect(result.isAborted).toBe(true)
+      expect(typeof result.result).toBe('string')
+      expect(Array.isArray(result.segments)).toBe(true)
+
+      // The context stays usable after a stopped job
+      const next = await context.transcribeData(createTestAudioBuffer(500, 440), {
+        maxThreads: 2,
+      }).promise
+      expect(next.isAborted).toBe(false)
+
+      await context.release()
+    },
+    TEST_TIMEOUT,
+  )
+
+  test(
+    'should settle the promise when the context is released mid-job',
+    async () => {
+      const context = await initParakeet({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      const audioBuffer = createTestAudioBuffer(60000, 440)
+      const { promise } = context.transcribeData(audioBuffer, {
+        maxThreads: 2,
+      })
+
+      expect(await settlesWithin(promise, 500)).toBe(false)
+
+      await context.release()
+
+      expect(await settlesWithin(promise, 10000)).toBe(true)
+    },
+    TEST_TIMEOUT,
+  )
 })

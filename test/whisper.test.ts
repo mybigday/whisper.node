@@ -48,6 +48,18 @@ function loadWavFile(filePath: string) {
   )
 }
 
+// Resolves true if the promise settles (either way) within `ms`, false otherwise
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    const done = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    promise.then(done, done)
+  })
+}
+
 describe('Whisper transcription', () => {
   const modelPath = path.join(
     __dirname,
@@ -365,6 +377,66 @@ describe('Whisper transcription', () => {
       console.log('Segment updates:', segmentUpdates.length)
 
       await context.release()
+    },
+    TEST_TIMEOUT,
+  )
+
+  test(
+    'should settle the promise with isAborted after stop() on an in-flight job',
+    async () => {
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      // Long CPU decode with a single thread so the job is still running when we stop it
+      const audioBuffer = createTestAudioBuffer(120000, 440)
+      const { stop, promise } = context.transcribeData(audioBuffer, {
+        language: 'en',
+        maxThreads: 1,
+        onNewSegments: () => {},
+      })
+
+      expect(await settlesWithin(promise, 1000)).toBe(false)
+
+      await stop()
+
+      expect(await settlesWithin(promise, 10000)).toBe(true)
+      const result = await promise
+      expect(result.isAborted).toBe(true)
+      expect(typeof result.result).toBe('string')
+      expect(Array.isArray(result.segments)).toBe(true)
+
+      // The context stays usable after a stopped job
+      const next = await context.transcribeData(createTestAudioBuffer(500, 440), {
+        language: 'en',
+      }).promise
+      expect(next.isAborted).toBe(false)
+
+      await context.release()
+    },
+    TEST_TIMEOUT,
+  )
+
+  test(
+    'should settle the promise when the context is released mid-job',
+    async () => {
+      const context = await initWhisper({
+        filePath: modelPath,
+        useGpu: false,
+      })
+
+      const audioBuffer = createTestAudioBuffer(120000, 440)
+      const { promise } = context.transcribeData(audioBuffer, {
+        language: 'en',
+        maxThreads: 1,
+      })
+
+      expect(await settlesWithin(promise, 1000)).toBe(false)
+
+      await context.release()
+
+      expect(await settlesWithin(promise, 10000)).toBe(true)
     },
     TEST_TIMEOUT,
   )

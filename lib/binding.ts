@@ -70,6 +70,10 @@ export interface TranscribeResult {
     t0: number
     t1: number
   }>
+  /**
+   * True when the job was interrupted by stop() or release(); `result` and
+   * `segments` then hold what was decoded before the interruption.
+   */
   isAborted: boolean
 }
 

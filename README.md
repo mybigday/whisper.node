@@ -66,6 +66,10 @@ const result2 = await promise2
 // You can also cancel transcription if needed
 // await stop1() // Cancels the first transcription
 // await stop2() // Cancels the second transcription
+//
+// stop() interrupts the decode; the job's promise then resolves with
+// `isAborted: true` and the segments decoded so far (it does not reject).
+// Native failures reject the promise. The context stays usable afterwards.
 
 // Always release the context when done
 await context.release()

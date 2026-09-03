@@ -248,9 +248,9 @@ Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const s
         result.Set("language", whisper_lang_str(languageId));
     }
 
-    // Create segments array
+    // Create segments array (for an aborted job: the segments decoded so far)
     auto segments = Napi::Array::New(env);
-    if (ctx && !aborted) {
+    if (ctx) {
         int n_segments = whisper_full_n_segments(ctx);
         for (int i = 0; i < n_segments; i++) {
             auto segment = Napi::Object::New(env);
