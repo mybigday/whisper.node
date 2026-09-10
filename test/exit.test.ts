@@ -16,12 +16,14 @@ const runChild = (body: string) => {
 }
 
 const expectCleanTeardown = (result: ReturnType<typeof runChild>, status: number) => {
+  // a child that failed before loading the model would otherwise look like a clean exit code
+  expect(result.stderr).toContain('[exit-test] model loaded')
   expect(result.signal).toBeNull()
   expect(result.stderr).not.toContain('GGML_ASSERT')
   expect(result.status).toBe(status)
 }
 
-const loadWhisper = `const ctx = await initWhisper({ filePath: models + '/ggml-tiny.en.bin', useGpu: true })`
+const loadWhisper = `const ctx = await initWhisper({ filePath: models + '/ggml-tiny.en.bin', useGpu: true }); console.error('[exit-test] model loaded')`
 
 test('process.exit() with a loaded whisper context', () => {
   expectCleanTeardown(runChild(`${loadWhisper}; process.exit(0)`), 0)
@@ -53,6 +55,7 @@ test('process.exit() with a loaded parakeet context', () => {
   expectCleanTeardown(
     runChild(`
       const ctx = await initParakeet({ filePath: models + '/ggml-parakeet-tdt-0.6b-v3-q4_0.bin', useGpu: true })
+      console.error('[exit-test] model loaded')
       process.exit(0)
     `),
     0,
