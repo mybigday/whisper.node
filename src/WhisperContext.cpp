@@ -84,7 +84,8 @@ protected:
 
         // Create a copy of params and set up callbacks if needed
         whisper_full_params params_copy = params_;
-        TranscribeCallbackContext callbackCtx;
+        auto callbackCtxPtr = std::make_shared<TranscribeCallbackContext>();
+        TranscribeCallbackContext& callbackCtx = *callbackCtxPtr;
         callbackCtx.tsfnProgress = tsfnProgress_;
         callbackCtx.tsfnNewSegments = tsfnNewSegments_;
         callbackCtx.cancelFlag = cancelFlag_;
@@ -103,7 +104,7 @@ protected:
 
         if (hasProgress_) {
             params_copy.progress_callback = [](struct whisper_context* /*ctx*/, struct whisper_state* /*state*/, int progress, void* user_data) {
-                TranscribeCallbackContext* cbCtx = static_cast<TranscribeCallbackContext*>(user_data);
+                auto cbCtx = *static_cast<std::shared_ptr<TranscribeCallbackContext>*>(user_data);
                 if (cbCtx->cancelFlag && cbCtx->cancelFlag->load()) {
                     return;
                 }
@@ -119,12 +120,12 @@ protected:
                     }
                 }
             };
-            params_copy.progress_callback_user_data = &callbackCtx;
+            params_copy.progress_callback_user_data = &callbackCtxPtr;
         }
 
         if (hasNewSegments_) {
             params_copy.new_segment_callback = [](struct whisper_context* ctx, struct whisper_state* /*state*/, int n_new, void* user_data) {
-                TranscribeCallbackContext* cbCtx = static_cast<TranscribeCallbackContext*>(user_data);
+                auto cbCtx = *static_cast<std::shared_ptr<TranscribeCallbackContext>*>(user_data);
                 if (cbCtx->cancelFlag && cbCtx->cancelFlag->load()) {
                     return;
                 }
@@ -137,6 +138,13 @@ protected:
 
                     cbCtx->pendingCallbacks++;
                     auto status = cbCtx->tsfnNewSegments.NonBlockingCall([cbCtx, ctx, n_new, totalNNew, tdrzEnable](Napi::Env env, Napi::Function jsCallback) {
+                        // the context may already be freed once the job was cancelled
+                        if (cbCtx->cancelFlag && cbCtx->cancelFlag->load()) {
+                            cbCtx->pendingCallbacks--;
+                            cbCtx->callbackCV.notify_one();
+                            return;
+                        }
+
                         std::string text = "";
                         Napi::Array segments = Napi::Array::New(env);
 
@@ -173,16 +181,18 @@ protected:
                     }
                 }
             };
-            params_copy.new_segment_callback_user_data = &callbackCtx;
+            params_copy.new_segment_callback_user_data = &callbackCtxPtr;
         }
 
         int result = whisper_full_parallel(session_->ctx, params_copy, audioData_.data(), audioData_.size(), nProcessors_);
 
-        // Wait for all pending callbacks to complete before returning
+        // Wait for all pending callbacks to complete before returning, unless the job was cancelled:
+        // the pending callback may be the one that cancelled us and it will not return before we do
         {
             std::unique_lock<std::mutex> lock(callbackCtx.callbackMutex);
             callbackCtx.callbackCV.wait(lock, [&callbackCtx] {
-                return callbackCtx.pendingCallbacks.load() == 0;
+                return callbackCtx.pendingCallbacks.load() == 0 ||
+                       (callbackCtx.cancelFlag && callbackCtx.cancelFlag->load());
             });
         }
 
@@ -359,6 +369,9 @@ private:
 };
 
 // WhisperContext implementation
+static LiveContexts<WhisperContext> g_whisper_contexts;
+static LiveContexts<WhisperVadContext> g_vad_contexts;
+
 WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWrap<WhisperContext>(info) {
     Napi::Env env = info.Env();
 
@@ -397,9 +410,13 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
     meta.Set("useGpu", useGpu);
     meta.Set("useFlashAttn", useFlashAttn);
     _meta = Napi::Persistent(meta);
+
+    g_whisper_contexts.add(this);
 }
 
 WhisperContext::~WhisperContext() {
+    g_whisper_contexts.remove(this);
+
     // Note: Don't delete _wip here as it's managed by Node.js async worker lifecycle
     // The worker will clean itself up when it completes
 }
@@ -543,6 +560,8 @@ void WhisperContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("abortTranscribe", &WhisperContext::AbortTranscribe),
         InstanceMethod("bench", &WhisperContext::Bench),
         InstanceMethod("release", &WhisperContext::Release),
+        InstanceMethod("releaseSync", &WhisperContext::ReleaseSync),
+        StaticMethod("releaseAllSync", &WhisperContext::ReleaseAllSync),
     });
 
     exports.Set("WhisperContext", func);
@@ -943,6 +962,40 @@ Napi::Value WhisperContext::Release(const Napi::CallbackInfo& info) {
     return deferred.Promise();
 }
 
+void WhisperContext::releaseSync() {
+    {
+        std::lock_guard<std::mutex> lock(_cancelMutex);
+        for (auto& [jobId, cancelFlag] : _cancelFlags) {
+            cancelFlag->store(true);
+        }
+        _cancelFlags.clear();
+    }
+
+    // a running job holds the session mutex until it has stopped using the context
+    if (_sess) {
+        std::lock_guard<std::mutex> lock(_sess->mtx);
+        if (_sess->ctx) {
+            whisper_free(_sess->ctx);
+            _sess->ctx = nullptr;
+        }
+    }
+    _sess.reset();
+}
+
+// releaseSync(): void
+// Synchronous variant of release() for process exit handlers, where no event loop is available
+void WhisperContext::ReleaseSync(const Napi::CallbackInfo& info) {
+    releaseSync();
+}
+
+// WhisperContext.releaseAllSync(): void
+// Release every live context, used on process exit so that no backend buffers outlive the process teardown
+void WhisperContext::ReleaseAllSync(const Napi::CallbackInfo& info) {
+    for (auto* ctx : g_whisper_contexts.snapshot()) {
+        ctx->releaseSync();
+    }
+}
+
 // WhisperVadContext implementation
 WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::ObjectWrap<WhisperVadContext>(info) {
     Napi::Env env = info.Env();
@@ -981,9 +1034,33 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
     meta.Set("useGpu", useGpu);
     meta.Set("nThreads", nThreads);
     _meta = Napi::Persistent(meta);
+
+    g_vad_contexts.add(this);
 }
 
 WhisperVadContext::~WhisperVadContext() {
+    g_vad_contexts.remove(this);
+}
+
+void WhisperVadContext::releaseSync() {
+    if (_sess) {
+        std::lock_guard<std::mutex> lock(_sess->mtx);
+        if (_sess->ctx) {
+            whisper_vad_free(_sess->ctx);
+            _sess->ctx = nullptr;
+        }
+    }
+    _sess.reset();
+}
+
+void WhisperVadContext::ReleaseSync(const Napi::CallbackInfo& info) {
+    releaseSync();
+}
+
+void WhisperVadContext::ReleaseAllSync(const Napi::CallbackInfo& info) {
+    for (auto* ctx : g_vad_contexts.snapshot()) {
+        ctx->releaseSync();
+    }
 }
 
 void WhisperVadContext::ToggleNativeLog(const Napi::CallbackInfo& info) {
@@ -1016,6 +1093,8 @@ void WhisperVadContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("detectSpeech", &WhisperVadContext::DetectSpeechFile),
         InstanceMethod("detectSpeechData", &WhisperVadContext::DetectSpeechData),
         InstanceMethod("release", &WhisperVadContext::Release),
+        InstanceMethod("releaseSync", &WhisperVadContext::ReleaseSync),
+        StaticMethod("releaseAllSync", &WhisperVadContext::ReleaseAllSync),
     });
 
     exports.Set("WhisperVadContext", func);

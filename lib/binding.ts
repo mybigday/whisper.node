@@ -131,9 +131,18 @@ export interface WhisperContext {
   }
   bench(nThreads: number): Promise<BenchResult>
   release(): Promise<void>
+  /**
+   * Release the context synchronously. Intended for process exit handlers,
+   * where release() cannot be awaited.
+   */
+  releaseSync(): void
   getModelInfo(): object
   
   // static methods
+  /**
+   * Release every live context of this type synchronously.
+   */
+  releaseAllSync(): void
   toggleNativeLog(
     enable: boolean,
     callback?: (level: string, text: string) => void,
@@ -164,9 +173,18 @@ export interface ParakeetContext {
     promise: Promise<TranscribeResult>
   }
   release(): Promise<void>
+  /**
+   * Release the context synchronously. Intended for process exit handlers,
+   * where release() cannot be awaited.
+   */
+  releaseSync(): void
   getModelInfo(): object
 
   // static methods
+  /**
+   * Release every live context of this type synchronously.
+   */
+  releaseAllSync(): void
   toggleNativeLog(
     enable: boolean,
     callback?: (level: string, text: string) => void,
@@ -182,9 +200,18 @@ export interface WhisperVadContext {
     options?: VadOptions,
   ): Promise<VadSegment[]>
   release(): Promise<void>
+  /**
+   * Release the context synchronously. Intended for process exit handlers,
+   * where release() cannot be awaited.
+   */
+  releaseSync(): void
   getModelInfo(): object
   
   // static methods
+  /**
+   * Release every live context of this type synchronously.
+   */
+  releaseAllSync(): void
   toggleNativeLog(
     enable: boolean,
     callback?: (level: string, text: string) => void,

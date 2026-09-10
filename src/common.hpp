@@ -7,6 +7,7 @@
 #include <map>
 #include <mutex>
 #include <functional>
+#include <set>
 
 #include "whisper.h"
 #include "parakeet.h"
@@ -38,6 +39,19 @@ namespace whisper_utils {
     std::vector<float> convertAudioBufferToFloat(Napi::ArrayBuffer& buffer);
     std::vector<float> loadAudioFile(const std::string& filePath);
 }
+
+// Live contexts of one type, so that all of them can be released synchronously on process exit
+template <typename T>
+class LiveContexts {
+public:
+    void add(T* ctx) { std::lock_guard<std::mutex> lock(mtx_); items_.insert(ctx); }
+    void remove(T* ctx) { std::lock_guard<std::mutex> lock(mtx_); items_.erase(ctx); }
+    std::vector<T*> snapshot() { std::lock_guard<std::mutex> lock(mtx_); return std::vector<T*>(items_.begin(), items_.end()); }
+
+private:
+    std::mutex mtx_;
+    std::set<T*> items_;
+};
 
 // Session management
 class WhisperSession {

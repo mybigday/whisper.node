@@ -121,9 +121,28 @@ export function addNativeLogListener(
  * @param variant - The backend variant to use ('default', 'vulkan', 'cuda')
  * @returns Promise that resolves to the loaded module
  */
+// Release every live context when the process exits, including process.exit()
+// and uncaught exceptions, where GC finalizers do not run. Backend buffers that
+// outlive the process teardown abort the process on some backends (Metal).
+let exitCleanupRegistered = false
+const registerExitCleanup = (mod: Module) => {
+  if (typeof process?.once !== 'function' || exitCleanupRegistered) return
+  exitCleanupRegistered = true
+  process.once('exit', () => {
+    for (const ctx of [mod.WhisperContext, mod.WhisperVadContext, mod.ParakeetContext]) {
+      try {
+        ctx?.releaseAllSync?.()
+      } catch {
+        // nothing useful can be done this late
+      }
+    }
+  })
+}
+
 export const loadWhisperModule = async (variant?: LibVariant): Promise<Module> => {
   if (!moduleCache) {
     moduleCache = await loadModule(variant);
+    registerExitCleanup(moduleCache)
     refreshNativeLogSetup()
   }
   return moduleCache;

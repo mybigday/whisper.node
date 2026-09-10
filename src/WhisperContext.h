@@ -18,12 +18,16 @@ public:
     // Static methods
     static void ToggleNativeLog(const Napi::CallbackInfo& info);
     static Napi::Value ModelInfo(const Napi::CallbackInfo& info);
+    static void ReleaseAllSync(const Napi::CallbackInfo& info);
     static void Init(Napi::Env env, Napi::Object& exports);
+
+    void releaseSync();
 
 private:
     // Instance methods
     Napi::Value GetSystemInfo(const Napi::CallbackInfo& info);
     Napi::Value GetModelInfo(const Napi::CallbackInfo& info);
+    void ReleaseSync(const Napi::CallbackInfo& info);
     Napi::Value TranscribeFile(const Napi::CallbackInfo& info);
     Napi::Value TranscribeData(const Napi::CallbackInfo& info);
     Napi::Value AbortTranscribe(const Napi::CallbackInfo& info);
@@ -55,12 +59,16 @@ public:
     // Static methods
     static void ToggleNativeLog(const Napi::CallbackInfo& info);
     static Napi::Value ModelInfo(const Napi::CallbackInfo& info);
+    static void ReleaseAllSync(const Napi::CallbackInfo& info);
     static void Init(Napi::Env env, Napi::Object& exports);
+
+    void releaseSync();
 
 private:
     // Instance methods
     Napi::Value GetSystemInfo(const Napi::CallbackInfo& info);
     Napi::Value GetModelInfo(const Napi::CallbackInfo& info);
+    void ReleaseSync(const Napi::CallbackInfo& info);
     Napi::Value DetectSpeechFile(const Napi::CallbackInfo& info);
     Napi::Value DetectSpeechData(const Napi::CallbackInfo& info);
     Napi::Value Release(const Napi::CallbackInfo& info);

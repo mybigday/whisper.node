@@ -93,6 +93,8 @@ private:
 };
 
 // ParakeetContext implementation
+static LiveContexts<ParakeetContext> g_parakeet_contexts;
+
 ParakeetContext::ParakeetContext(const Napi::CallbackInfo& info) : Napi::ObjectWrap<ParakeetContext>(info) {
     Napi::Env env = info.Env();
 
@@ -128,9 +130,13 @@ ParakeetContext::ParakeetContext(const Napi::CallbackInfo& info) : Napi::ObjectW
     meta.Set("filePath", modelPath);
     meta.Set("useGpu", useGpu);
     _meta = Napi::Persistent(meta);
+
+    g_parakeet_contexts.add(this);
 }
 
 ParakeetContext::~ParakeetContext() {
+    g_parakeet_contexts.remove(this);
+
     // Note: The worker holds a shared pointer to the session, so it stays
     // alive until any running transcription finishes
 }
@@ -179,6 +185,8 @@ void ParakeetContext::Init(Napi::Env env, Napi::Object& exports) {
         InstanceMethod("transcribeData", &ParakeetContext::TranscribeData),
         InstanceMethod("abortTranscribe", &ParakeetContext::AbortTranscribe),
         InstanceMethod("release", &ParakeetContext::Release),
+        InstanceMethod("releaseSync", &ParakeetContext::ReleaseSync),
+        StaticMethod("releaseAllSync", &ParakeetContext::ReleaseAllSync),
     });
 
     exports.Set("ParakeetContext", func);
@@ -370,6 +378,36 @@ Napi::Value ParakeetContext::AbortTranscribe(const Napi::CallbackInfo& info) {
     auto deferred = Napi::Promise::Deferred::New(env);
     deferred.Resolve(env.Undefined());
     return deferred.Promise();
+}
+
+void ParakeetContext::releaseSync() {
+    {
+        std::lock_guard<std::mutex> lock(_cancelMutex);
+        for (auto& [jobId, cancelFlag] : _cancelFlags) {
+            cancelFlag->store(true);
+        }
+        _cancelFlags.clear();
+    }
+
+    // a running job holds the session mutex until it has stopped using the context
+    if (_sess) {
+        std::lock_guard<std::mutex> lock(_sess->mtx);
+        if (_sess->ctx) {
+            parakeet_free(_sess->ctx);
+            _sess->ctx = nullptr;
+        }
+    }
+    _sess.reset();
+}
+
+void ParakeetContext::ReleaseSync(const Napi::CallbackInfo& info) {
+    releaseSync();
+}
+
+void ParakeetContext::ReleaseAllSync(const Napi::CallbackInfo& info) {
+    for (auto* ctx : g_parakeet_contexts.snapshot()) {
+        ctx->releaseSync();
+    }
 }
 
 Napi::Value ParakeetContext::Release(const Napi::CallbackInfo& info) {
