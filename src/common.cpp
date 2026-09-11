@@ -170,6 +170,11 @@ whisper_full_params createFullParamsFromOptions(const Napi::Object& options) {
             params.temperature_inc = value.As<Napi::Number>().FloatValue();
         } else if (key == "beamSize" && value.IsNumber()) {
             params.beam_search.beam_size = value.As<Napi::Number>().Int32Value();
+            // whisper.cpp only consults beam_size under WHISPER_SAMPLING_BEAM_SEARCH; the
+            // default strategy is GREEDY, so without this the option had no effect.
+            if (params.beam_search.beam_size > 1) {
+                params.strategy = WHISPER_SAMPLING_BEAM_SEARCH;
+            }
         } else if (key == "bestOf" && value.IsNumber()) {
             params.greedy.best_of = value.As<Napi::Number>().Int32Value();
         }
