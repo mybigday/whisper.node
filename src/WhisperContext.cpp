@@ -2,6 +2,7 @@
 #include "common.hpp"
 #include "whisper.h"
 #include "common-whisper.h"
+#include "ggml-backend.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -388,6 +389,15 @@ WhisperContext::WhisperContext(const Napi::CallbackInfo& info) : Napi::ObjectWra
     if (modelPath.empty()) {
         Napi::TypeError::New(env, "Model path is required").ThrowAsJavaScriptException();
         return;
+    }
+
+    // The Hexagon NPU (snapdragon variant) only runs the flash-attention graph:
+    // whisper.rn's ggml-hexagon patch writes the KV caches with ggml_set_rows
+    // there, while the non-FA graph uses an f32->f16 ggml_cpy that HTP cannot
+    // execute (ggml-backend asserts at whisper_init_state). Always on when the
+    // model is offloaded to HTP, matching whisper.rn.
+    if (useGpu && !useFlashAttn && ggml_backend_reg_by_name("HTP") != nullptr) {
+        useFlashAttn = true;
     }
 
     // Initialize whisper context

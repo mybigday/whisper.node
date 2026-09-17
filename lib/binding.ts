@@ -1,6 +1,7 @@
 export interface NativeContextOptions {
   filePath: string,
   modelUrl?: string,
+  /** Use flash attention. Always on when the model runs on the Hexagon NPU (snapdragon variant). */
   useFlashAttn?: boolean,
   useGpu?: boolean,
   maxModelBytes?: number,
