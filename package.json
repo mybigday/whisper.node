@@ -6,7 +6,7 @@
   "browser": "lib/browser.mjs",
   "types": "lib/index.d.ts",
   "scripts": {
-    "bootstrap": "npm install --omit=optional",
+    "bootstrap": "git submodule update --init src/whisper.rn && npm install --omit=optional",
     "postinstall": "node scripts/check.js",
     "pretest": "node scripts/download-test-models.js && npm run build-js",
     "test": "jest",
@@ -31,9 +31,16 @@
     "scripts/build-wasm-docker.js",
     "src/*.{cc,c,h,hpp,cpp}",
     "src/wasm/**/*.{cc,c,h,hpp,cpp}",
-    "whisper.cpp/{examples,src,include}/**/*.{h,hpp,cpp,cc,c}",
-    "whisper.cpp/ggml/include/*.h",
-    "whisper.cpp/ggml/src/ggml-cpu/**/*.{h,hpp,cpp,cc,c}",
+    "scripts/whisper.cpp.patch",
+    "src/whisper.rn/vendor/whisper.cpp/CMakeLists.txt",
+    "src/whisper.rn/vendor/whisper.cpp/cmake/**/*",
+    "src/whisper.rn/vendor/whisper.cpp/{examples,src,include}/**/*",
+    "src/whisper.rn/vendor/whisper.cpp/ggml/CMakeLists.txt",
+    "src/whisper.rn/vendor/whisper.cpp/ggml/cmake/**/*",
+    "src/whisper.rn/vendor/whisper.cpp/ggml/include/*.h",
+    "src/whisper.rn/vendor/whisper.cpp/ggml/src/*.{h,hpp,cpp,cc,c}",
+    "src/whisper.rn/vendor/whisper.cpp/ggml/src/CMakeLists.txt",
+    "src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-cpu/**/*",
     "lib/browser.mjs",
     "lib/*.js",
     "lib/*.ts",
@@ -120,6 +127,9 @@
     ],
     "testMatch": [
       "**/*.test.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "<rootDir>/src/whisper.rn/"
     ]
   },
   "prettier": {

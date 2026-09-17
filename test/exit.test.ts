@@ -6,8 +6,8 @@ import { spawnSync } from 'child_process'
 const runChild = (body: string) => {
   const script = `
     const { initWhisper, initParakeet } = require(${JSON.stringify(path.resolve(__dirname, '../lib'))})
-    const models = ${JSON.stringify(path.resolve(__dirname, '../whisper.cpp/models'))}
-    const samples = ${JSON.stringify(path.resolve(__dirname, '../whisper.cpp/samples'))}
+    const models = ${JSON.stringify(path.resolve(__dirname, 'models'))}
+    const samples = ${JSON.stringify(path.resolve(__dirname, '../src/whisper.rn/vendor/whisper.cpp/samples'))}
     ;(async () => {
       ${body}
     })()

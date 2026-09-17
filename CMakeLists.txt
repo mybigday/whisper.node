@@ -10,35 +10,52 @@ option(WHISPER_NODE_WASM "Build the browser WASM package" OFF)
 option(WHISPER_NODE_WASM_SINGLE_FILE "Embed WASM into the generated browser JS" OFF)
 option(WHISPER_NODE_WASM_THREADS "Build the browser WASM package with pthread support" OFF)
 
+# whisper.cpp comes from the whisper.rn submodule, which vendors it in upstream
+# layout (src/whisper.rn/vendor/whisper.cpp) with whisper.rn's own patches
+# already applied. scripts/whisper.cpp.patch carries only the whisper.node
+# specific changes on top of that tree (MSVC ARM flags, Vulkan shader-gen
+# toolchain when host and target arch differ).
+set(WHISPER_RN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/whisper.rn)
+set(WHISPER_CPP_DIR ${WHISPER_RN_DIR}/vendor/whisper.cpp)
+set(WHISPER_CPP_PATCH_FILE ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch)
+
+if (NOT EXISTS ${WHISPER_CPP_DIR}/CMakeLists.txt)
+  message(FATAL_ERROR "src/whisper.rn submodule is missing; run: git submodule update --init src/whisper.rn")
+endif()
+
 execute_process(
-  COMMAND git apply --check ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+  COMMAND git apply --check ${WHISPER_CPP_PATCH_FILE}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  RESULT_VARIABLE WHISPER_PATCH_CAN_APPLY
+  RESULT_VARIABLE WHISPER_CPP_PATCH_CHECK_RESULT
   OUTPUT_QUIET
   ERROR_QUIET
 )
 
-if (WHISPER_PATCH_CAN_APPLY EQUAL 0)
+if (WHISPER_CPP_PATCH_CHECK_RESULT EQUAL 0)
   execute_process(
-    COMMAND git apply ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+    COMMAND git apply ${WHISPER_CPP_PATCH_FILE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    RESULT_VARIABLE WHISPER_PATCH_APPLY_RESULT
+    RESULT_VARIABLE WHISPER_CPP_PATCH_APPLY_RESULT
   )
 
-  if (NOT WHISPER_PATCH_APPLY_RESULT EQUAL 0)
+  if (NOT WHISPER_CPP_PATCH_APPLY_RESULT EQUAL 0)
     message(FATAL_ERROR "Failed to apply scripts/whisper.cpp.patch")
   endif()
+
+  message(STATUS "Applied scripts/whisper.cpp.patch")
 else()
   execute_process(
-    COMMAND git apply --reverse --check ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch
+    COMMAND git apply --reverse --check ${WHISPER_CPP_PATCH_FILE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    RESULT_VARIABLE WHISPER_PATCH_ALREADY_APPLIED
+    RESULT_VARIABLE WHISPER_CPP_PATCH_REVERSE_CHECK_RESULT
     OUTPUT_QUIET
     ERROR_QUIET
   )
 
-  if (NOT WHISPER_PATCH_ALREADY_APPLIED EQUAL 0)
-    message(FATAL_ERROR "scripts/whisper.cpp.patch cannot be applied to the current whisper.cpp checkout")
+  if (WHISPER_CPP_PATCH_REVERSE_CHECK_RESULT EQUAL 0)
+    message(STATUS "scripts/whisper.cpp.patch already applied")
+  else()
+    message(FATAL_ERROR "scripts/whisper.cpp.patch does not match the current src/whisper.rn/vendor/whisper.cpp checkout")
   endif()
 endif()
 
@@ -56,7 +73,7 @@ if (WHISPER_NODE_WASM)
     add_compile_options("-pthread")
   endif()
 
-  add_subdirectory("whisper.cpp")
+  add_subdirectory(${WHISPER_CPP_DIR} ${CMAKE_BINARY_DIR}/whisper.cpp)
 
   set(WASM_TARGET whisper-node-wasm)
   if (WHISPER_NODE_WASM_THREADS)
@@ -70,10 +87,10 @@ if (WHISPER_NODE_WASM)
   )
 
   target_include_directories(${WASM_TARGET} PRIVATE
-    "whisper.cpp"
-    "whisper.cpp/include"
-    "whisper.cpp/src"
-    "whisper.cpp/ggml/include"
+    ${WHISPER_CPP_DIR}
+    ${WHISPER_CPP_DIR}/include
+    ${WHISPER_CPP_DIR}/src
+    ${WHISPER_CPP_DIR}/ggml/include
   )
 
   target_link_libraries(${WASM_TARGET} PRIVATE whisper parakeet)
@@ -233,7 +250,7 @@ if(APPLE AND NOT DEFINED GGML_METAL_MACOSX_VERSION_MIN)
     set(GGML_METAL_MACOSX_VERSION_MIN "$ENV{MACOSX_DEPLOYMENT_TARGET}")
   endif()
 endif()
-add_subdirectory("whisper.cpp")
+add_subdirectory(${WHISPER_CPP_DIR} ${CMAKE_BINARY_DIR}/whisper.cpp)
 
 if (NOT GGML_VULKAN AND NOT GGML_CUDA AND NOT GGML_METAL AND NOT GGML_CLBLAST)
   add_definitions(-DNO_GPU_SUPPORT)
@@ -241,9 +258,9 @@ endif()
 
 include_directories(
   ${CMAKE_JS_INC}
-  "whisper.cpp"
-  "whisper.cpp/examples"
-  "whisper.cpp/src"
+  ${WHISPER_CPP_DIR}
+  ${WHISPER_CPP_DIR}/examples
+  ${WHISPER_CPP_DIR}/src
 )
 
 file(
@@ -256,7 +273,7 @@ file(
     "src/ParakeetContext.cpp"
     "src/ParakeetContext.h"
 )
-list(APPEND SOURCE_FILES "whisper.cpp/examples/common-whisper.cpp")
+list(APPEND SOURCE_FILES ${WHISPER_CPP_DIR}/examples/common-whisper.cpp)
 
 if (NOT MSVC AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
   file(GLOB WIN_DYNAMIC_LOAD_SRC "src/win_dynamic_load.c")

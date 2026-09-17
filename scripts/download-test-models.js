@@ -6,13 +6,10 @@ const http = require('http')
 const https = require('https')
 const { pipeline } = require('stream/promises')
 
-const modelsDir = path.join(__dirname, '../whisper.cpp/models')
+const modelsDir = path.join(__dirname, '../test/models')
 
-// Ensure the models directory exists
-if (!fs.existsSync(modelsDir)) {
-  console.error(`Models directory does not exist: ${modelsDir}`)
-  process.exit(1)
-}
+// Ensure the models directory exists (gitignored: *.bin)
+fs.mkdirSync(modelsDir, { recursive: true })
 
 const requiredModels = [
   {

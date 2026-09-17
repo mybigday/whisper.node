@@ -4,7 +4,7 @@ import { initWhisperVad } from '../lib/index'
 
 // Test configuration
 const TEST_TIMEOUT = 30000 // 30 seconds timeout for model loading
-const SAMPLE_AUDIO_PATH = path.join(__dirname, '../whisper.cpp/samples/jfk.wav')
+const SAMPLE_AUDIO_PATH = path.join(__dirname, '../src/whisper.rn/vendor/whisper.cpp/samples/jfk.wav')
 
 // Helper function to load WAV file and convert to ArrayBuffer
 function loadWavFile(filePath: string) {
@@ -29,7 +29,7 @@ function loadWavFile(filePath: string) {
 describe('Voice Activity Detection (VAD)', () => {
   const vadModelPath = path.join(
     __dirname,
-    '../whisper.cpp/models/ggml-silero-v6.2.0.bin',
+    'models/ggml-silero-v6.2.0.bin',
   )
 
   test(

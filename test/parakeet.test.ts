@@ -6,7 +6,7 @@ import { initParakeet } from '../lib/index'
 const TEST_TIMEOUT = 60000 // 60 seconds timeout for model loading
 const STOP_SETTLE_TIMEOUT = 60000 // how long a stopped job may take to settle on slow CI
 const STOP_TEST_TIMEOUT = 180000
-const SAMPLE_AUDIO_PATH = path.join(__dirname, '../whisper.cpp/samples/jfk.wav')
+const SAMPLE_AUDIO_PATH = path.join(__dirname, '../src/whisper.rn/vendor/whisper.cpp/samples/jfk.wav')
 
 // Helper function to create test audio data (16-bit PCM, mono, 16kHz)
 function createTestAudioBuffer(durationMs = 1000, frequency = 440) {
@@ -60,7 +60,7 @@ function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> 
 describe('Parakeet transcription', () => {
   const modelPath = path.join(
     __dirname,
-    '../whisper.cpp/models/ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
+    'models/ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
   )
 
   test(
