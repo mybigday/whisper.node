@@ -30,6 +30,9 @@ on:
       NPM_TOKEN:
         required: true
 
+env:
+  HEXAGON_SDK_VERSION: '6.4.0.2'
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -114,6 +117,19 @@ jobs:
             target: vulkan
             package: node-whisper-win32-arm64-vulkan
             toolchain: mingw-clang
+          # Linux arm64 Snapdragon (cross-compiled on x86_64)
+          - os: ubuntu-24.04
+            arch: arm64
+            target: snapdragon
+            package: node-whisper-linux-arm64-snapdragon
+            cross-compile: true
+          # TODO: uncomment this when Windows arm64 Snapdragon is supported
+          # # Windows arm64 Snapdragon
+          # - os: windows-latest
+          #   arch: arm64
+          #   target: snapdragon
+          #   package: node-whisper-win32-arm64-snapdragon
+          #   toolchain: mingw-clang
           # Browser WASM
           - os: ubuntu-22.04
             arch: wasm

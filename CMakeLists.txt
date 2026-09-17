@@ -164,7 +164,8 @@ else()
 endif()
 
 if (TO_PACKAGE)
-  set(PLATFORM_BINARY_DIR ${CMAKE_SOURCE_DIR}/packages/node-whisper-${PLATFORM}-${ARCH}${VARIANT})
+  set(PACKAGE_NAME "node-whisper-${PLATFORM}-${ARCH}${VARIANT}")
+  set(PLATFORM_BINARY_DIR ${CMAKE_SOURCE_DIR}/packages/${PACKAGE_NAME})
 else()
   set(PLATFORM_BINARY_DIR ${CMAKE_SOURCE_DIR}/build/Release)
 endif()
@@ -252,7 +253,7 @@ if(APPLE AND NOT DEFINED GGML_METAL_MACOSX_VERSION_MIN)
 endif()
 add_subdirectory(${WHISPER_CPP_DIR} ${CMAKE_BINARY_DIR}/whisper.cpp)
 
-if (NOT GGML_VULKAN AND NOT GGML_CUDA AND NOT GGML_METAL AND NOT GGML_CLBLAST)
+if (NOT GGML_VULKAN AND NOT GGML_CUDA AND NOT GGML_METAL AND NOT GGML_CLBLAST AND NOT GGML_HEXAGON)
   add_definitions(-DNO_GPU_SUPPORT)
 endif()
 
@@ -291,6 +292,16 @@ if (NOT MSVC AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
   set(CMAKE_JS_LIB win_dynamic_load)
 endif()
 
+if (TO_PACKAGE AND GGML_HEXAGON)
+  # The HTP skels (libggml-htp-*.so) ship next to index.node; ggml-hexagon
+  # dlopens them through the FastRPC stub, so make the package dir an rpath
+  # for plain Node and for Electron (asar-unpacked / resources) layouts.
+  set(NODE_RPATH "node_modules/@fugood/${PACKAGE_NAME}")
+  set(ELECTRON_ASAR_RPATH "resources/app.asar.unpacked/node_modules/@fugood/${PACKAGE_NAME}")
+  set(ELECTRON_RES_RPATH "resources/node_modules/@fugood/${PACKAGE_NAME}")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-rpath,${NODE_RPATH} -Wl,-rpath,${ELECTRON_ASAR_RPATH} -Wl,-rpath,${ELECTRON_RES_RPATH}")
+endif()
+
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES} ${CMAKE_JS_SRC})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
 target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB} whisper parakeet ggml ${CMAKE_THREAD_LIBS_INIT})
@@ -322,6 +333,18 @@ if (GGML_METAL AND NOT GGML_METAL_EMBED_LIBRARY)
     COMMENT "Copying default.metallib to bin folder"
   )
   add_dependencies(copy_assets ggml-metal)
+endif()
+
+if (GGML_HEXAGON)
+  get_target_property(HTP_LIBS_DIR ggml-hexagon BINARY_DIR)
+  add_custom_command(
+    TARGET copy_assets
+    COMMAND ${CMAKE_COMMAND} -E copy ${HTP_LIBS_DIR}/libggml-htp-v73.so ${PLATFORM_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy ${HTP_LIBS_DIR}/libggml-htp-v75.so ${PLATFORM_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy ${HTP_LIBS_DIR}/libggml-htp-v79.so ${PLATFORM_BINARY_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy ${HTP_LIBS_DIR}/libggml-htp-v81.so ${PLATFORM_BINARY_DIR}
+    COMMENT "Copying HTP libraries to bin folder"
+  )
 endif()
 
 if (GGML_CLBLAST AND TO_PACKAGE)
