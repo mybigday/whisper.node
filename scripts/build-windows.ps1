@@ -6,6 +6,11 @@ param (
 
 $ErrorActionPreference='Stop'
 
+$hexagonSdkVersion = $env:HEXAGON_SDK_VERSION
+if ($hexagonSdkVersion -eq $null) {
+  $hexagonSdkVersion = "6.4.0.2"
+}
+
 # Enable parallel compilation
 $env:CMAKE_BUILD_PARALLEL_LEVEL = [Environment]::ProcessorCount
 
@@ -85,6 +90,22 @@ if ($target -eq "all" -or $target -eq "cuda") {
     --CDGGML_CUDA=1 `
     --CDGGML_CUDA_F16=1 `
     --CDCMAKE_CUDA_ARCHITECTURES="86;89;120" # See: https://developer.nvidia.com/cuda-gpus
+  if ($LASTEXITCODE -ne 0) {
+    throw "build failed"
+  }
+}
+
+# Snapdragon (Hexagon NPU; whisper.rn does not enable OpenCL)
+
+if ($target -eq "all" -or $target -eq "snapdragon") {
+  . "externals/Hexagon_SDK/Hexagon_SDK/$hexagonSdkVersion/setup_sdk_env.ps1"
+
+  npx cmake-js rebuild -C -a $arch $cmakeArgs `
+    --CDVARIANT=snapdragon `
+    --CDGGML_OPENMP=0 `
+    --CDGGML_HEXAGON=1 `
+    --CDHEXAGON_SDK_ROOT="$HEXAGON_SDK_ROOT" `
+    --CDPREBUILT_LIB_DIR=windows_aarch64
   if ($LASTEXITCODE -ne 0) {
     throw "build failed"
   }

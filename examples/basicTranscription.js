@@ -2,9 +2,12 @@ const fs = require('fs')
 const path = require('path')
 const { initWhisper } = require('../lib/index')
 
+// Optional native variant, e.g. WHISPER_VARIANT=snapdragon
+const VARIANT = process.env.WHISPER_VARIANT || 'default'
+
 // Configuration
-const MODEL_PATH = path.join(__dirname, '../whisper.cpp/models/ggml-tiny.en.bin')
-const AUDIO_PATH = path.join(__dirname, '../whisper.cpp/samples/jfk.wav')
+const MODEL_PATH = path.join(__dirname, '../test/models/ggml-tiny.en.bin')
+const AUDIO_PATH = path.join(__dirname, '../src/whisper.rn/vendor/whisper.cpp/samples/jfk.wav')
 
 /**
  * Load WAV file and convert to ArrayBuffer (skipping WAV header)
@@ -33,8 +36,8 @@ async function main() {
   // Initialize whisper context
   const context = await initWhisper({
     filePath: MODEL_PATH,
-    useGpu: true, // Set to false if GPU is not available
-  })
+    useGpu: process.env.WHISPER_USE_GPU !== '0',
+  }, VARIANT)
 
   console.log('Model loaded successfully!')
   console.log()

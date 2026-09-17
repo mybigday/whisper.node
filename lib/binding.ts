@@ -1,6 +1,7 @@
 export interface NativeContextOptions {
   filePath: string,
   modelUrl?: string,
+  /** Use flash attention. Always on when the model runs on the Hexagon NPU (snapdragon variant). */
   useFlashAttn?: boolean,
   useGpu?: boolean,
   maxModelBytes?: number,
@@ -224,7 +225,7 @@ export interface Module {
   ParakeetContext: ParakeetContext
 }
 
-export type LibVariant = 'default' | 'vulkan' | 'cuda'
+export type LibVariant = 'default' | 'vulkan' | 'cuda' | 'snapdragon'
 
 const getPlatformPackageName = (variant?: LibVariant): string => {
   const platform = process.platform
@@ -274,8 +275,25 @@ export const loadModule = async (variant?: LibVariant): Promise<Module> => {
     return loadWasmPackage()
   }
 
+  const packageName = getPlatformPackageName(variant)
+
+  // Snapdragon: ggml-hexagon loads the HTP skels (libggml-htp-*.so) from
+  // ADSP_LIBRARY_PATH, which the platform package ships next to index.node.
+  if (variant === 'snapdragon') {
+    if (!process.env.ADSP_LIBRARY_PATH) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const path = require('path') as typeof import('path')
+        process.env.ADSP_LIBRARY_PATH = path.dirname(require.resolve(packageName))
+      } catch {
+        /* no-op */
+      }
+    }
+    if (!process.env.GGML_HEXAGON_NDEV) process.env.GGML_HEXAGON_NDEV = '16'
+  }
+
   // Try to load the requested variant
-  let module = await loadPlatformPackage(getPlatformPackageName(variant))
+  let module = await loadPlatformPackage(packageName)
   if (module) {
     return module
   }

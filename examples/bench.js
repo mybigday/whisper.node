@@ -1,8 +1,11 @@
 const path = require('path')
 const { initWhisper } = require('../lib/index')
 
+// Optional native variant, e.g. WHISPER_VARIANT=snapdragon
+const VARIANT = process.env.WHISPER_VARIANT || 'default'
+
 // Configuration
-const MODEL_PATH = path.join(__dirname, '../whisper.cpp/models/ggml-tiny.en.bin')
+const MODEL_PATH = path.join(__dirname, '../test/models/ggml-tiny.en.bin')
 
 async function main() {
   // Parse command line arguments
@@ -21,8 +24,8 @@ async function main() {
   console.log('Loading model...')
   const context = await initWhisper({
     filePath: modelPath,
-    useGpu: true, // Set to false to benchmark CPU only
-  })
+    useGpu: process.env.WHISPER_USE_GPU !== '0',
+  }, VARIANT)
   console.log('Model loaded!')
   console.log()
 

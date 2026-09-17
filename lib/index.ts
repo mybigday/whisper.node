@@ -118,7 +118,7 @@ export function addNativeLogListener(
 
 /**
  * Load the whisper.node module with the specified variant
- * @param variant - The backend variant to use ('default', 'vulkan', 'cuda')
+ * @param variant - The backend variant to use ('default', 'vulkan', 'cuda', 'snapdragon')
  * @returns Promise that resolves to the loaded module
  */
 // Release every live context when the process exits, including process.exit()

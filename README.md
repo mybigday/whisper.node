@@ -256,6 +256,7 @@ the browser package because the Silero VAD graph hits unsupported WebGPU ops.
 - [x] `cuda`: Support GPU CUDA (Windows/Linux), but only for limited capability
   > Linux: (x86_64: 8.9, arm64: 8.7)
   > Windows: x86_64 - 12.0
+- [x] `snapdragon`: Qualcomm Snapdragon Hexagon NPU via ggml-hexagon (Linux arm64). The HTP skels ship in the platform package and `ADSP_LIBRARY_PATH` is set automatically; `GGML_HEXAGON_NDEV` defaults to 16
 
 ## License
 

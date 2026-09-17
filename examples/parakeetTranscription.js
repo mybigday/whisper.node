@@ -2,12 +2,15 @@ const fs = require('fs')
 const path = require('path')
 const { initParakeet } = require('../lib/index')
 
+// Optional native variant, e.g. WHISPER_VARIANT=snapdragon
+const VARIANT = process.env.WHISPER_VARIANT || 'default'
+
 // Configuration
 const MODEL_PATH = path.join(
   __dirname,
-  '../whisper.cpp/models/ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
+  '../test/models/ggml-parakeet-tdt-0.6b-v3-q4_0.bin',
 )
-const AUDIO_PATH = path.join(__dirname, '../whisper.cpp/samples/jfk.wav')
+const AUDIO_PATH = path.join(__dirname, '../src/whisper.rn/vendor/whisper.cpp/samples/jfk.wav')
 
 /**
  * Load WAV file and convert to ArrayBuffer (skipping WAV header)
@@ -46,7 +49,7 @@ async function main() {
   const context = await initParakeet({
     filePath: MODEL_PATH,
     useGpu: true, // Set to false if GPU is not available
-  })
+  }, VARIANT)
 
   console.log('Model loaded successfully!')
   console.log()

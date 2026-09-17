@@ -6,6 +6,11 @@ param (
 
 $ErrorActionPreference='Stop'
 
+$hexagonSdkVersion = $env:HEXAGON_SDK_VERSION
+if ($hexagonSdkVersion -eq $null) {
+  $hexagonSdkVersion = "6.4.0.2"
+}
+
 $nativeArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
 
 if ($arch -eq "native") {
@@ -50,4 +55,18 @@ if ($toolchain -eq "mingw-clang") {
   }
 
   choco install ninja -y
+}
+
+if ($target -eq "snapdragon") {
+  # Download Hexagon SDK
+  $sdkPath = "externals/Hexagon_SDK"
+  if (-Not (Test-Path $sdkPath)) {
+    Write-Host "Downloading Hexagon SDK..."
+    New-Item -ItemType Directory -Force -Path "externals" | Out-Null
+    Invoke-WebRequest -Uri "https://softwarecenter.qualcomm.com/api/download/software/sdks/Hexagon_SDK/Windows/$hexagonSdkVersion/Hexagon_SDK_WinNT.zip" -OutFile "externals/Hexagon_SDK_WinNT.zip"
+    Write-Host "Extracting Hexagon SDK..."
+    Expand-Archive -Path "externals/Hexagon_SDK_WinNT.zip" -DestinationPath "externals/Hexagon_SDK" -Force
+  }
+
+  . "externals/Hexagon_SDK/Hexagon_SDK/$hexagonSdkVersion/setup_sdk_env.ps1"
 }
