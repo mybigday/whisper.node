@@ -22,6 +22,7 @@ An another Node binding of [whisper.cpp](https://github.com/ggml-org/whisper.cpp
   - CPU
   - GPU acceleration via Vulkan
   - GPU acceleration via CUDA
+  - NPU acceleration via Qualcomm Hexagon (arm64 Snapdragon, experimental)
 - Web
   - WASM
   - Optional WebGPU through `ggml-webgpu` when the WASM package is built with `GGML_WEBGPU=ON`
@@ -257,6 +258,24 @@ the browser package because the Silero VAD graph hits unsupported WebGPU ops.
   > Linux: (x86_64: 8.9, arm64: 8.7)
   > Windows: x86_64 - 12.0
 - [x] `snapdragon`: Qualcomm Snapdragon Hexagon NPU via ggml-hexagon (Linux arm64). The HTP skels ship in the platform package and `ADSP_LIBRARY_PATH` is set automatically; `GGML_HEXAGON_NDEV` defaults to 16
+
+### Snapdragon (Hexagon NPU) benchmark
+
+Pass `'snapdragon'` as the `libVariant` argument (e.g. `initWhisper({ model, useGpu: true }, 'snapdragon')`). The whisper model runs on the Hexagon NPU with flash attention always on.
+
+Benchmark on Qualcomm IQ-9075 (HTP = `snapdragon` variant, CPU = `default` variant):
+
+| Model                 | HTP encode | CPU encode | HTP decode | CPU decode | HTP transcribe | CPU transcribe |
+| --------------------- | ---------: | ---------: | ---------: | ---------: | -------------: | -------------: |
+| tiny.en               |      95 ms |     361 ms |     6.7 ms |     3.4 ms |         316 ms |         524 ms |
+| base                  |     143 ms |     787 ms |     6.3 ms |     5.5 ms |         430 ms |         846 ms |
+| base-q8_0             |     154 ms |     557 ms |     6.9 ms |     4.2 ms |         397 ms |         582 ms |
+| small                 |     360 ms |    2824 ms |    16.3 ms |    14.0 ms |         915 ms |        2789 ms |
+| distil-small.en-q8_0  |     320 ms |    1743 ms |     5.3 ms |     4.8 ms |         510 ms |        1530 ms |
+| medium                |     812 ms |    8799 ms |    35.1 ms |    38.3 ms |        1915 ms |        8006 ms |
+| large-v3-turbo-q8_0   |    2479 ms |    9400 ms |     9.8 ms |     8.2 ms |        2838 ms |        7616 ms |
+
+The same backend is available on Android through [whisper.rn](https://github.com/mybigday/whisper.rn#hexagon-npu-experimental).
 
 ## License
 
