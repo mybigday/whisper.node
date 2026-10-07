@@ -1,21 +1,8 @@
-diff --git a/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt b/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-index 1c7338e..89018bd 100644
---- a/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-+++ b/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-cpu/CMakeLists.txt
-@@ -105,7 +105,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
-             )
- 
-         if (MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")
--            message(FATAL_ERROR "MSVC is not supported for ARM, use clang")
-+            list(APPEND ARCH_FLAGS /arch:armv8.7)
-         else()
-             check_cxx_compiler_flag(-mfp16-format=ieee GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E)
-             if (NOT "${GGML_COMPILER_SUPPORTS_FP16_FORMAT_I3E}" STREQUAL "")
 diff --git a/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt b/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
-index e733ad5..2dd7d9b 100644
+index d7dec92..69507c5 100644
 --- a/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
 +++ b/src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-vulkan/CMakeLists.txt
-@@ -149,7 +149,7 @@ if (Vulkan_FOUND)
+@@ -159,7 +159,7 @@ if (Vulkan_FOUND)
      endif()
  
      # Set up toolchain for host compilation whether cross-compiling or not
@@ -24,7 +11,7 @@ index e733ad5..2dd7d9b 100644
          if (GGML_VULKAN_SHADERS_GEN_TOOLCHAIN)
              set(HOST_CMAKE_TOOLCHAIN_FILE ${GGML_VULKAN_SHADERS_GEN_TOOLCHAIN})
          else()
-@@ -169,7 +169,7 @@ if (Vulkan_FOUND)
+@@ -179,7 +179,7 @@ if (Vulkan_FOUND)
  
      include(ExternalProject)
  
