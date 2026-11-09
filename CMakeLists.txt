@@ -300,6 +300,10 @@ if (TARGET ggml-vad-cpu AND NOT MSVC)
   # vad-cpu.cpp uses std::sqrt without including <cmath> (vad.cpp bug)
   target_compile_options(ggml-vad-cpu PRIVATE "SHELL:-include cmath")
 endif()
+if (MSVC)
+  # vad.cpp uses M_PI, which MSVC's <cmath> only defines on request
+  target_compile_definitions(vad PRIVATE _USE_MATH_DEFINES)
+endif()
 # ggml-vad-cpu compiles some files with higher ISA flags (AVX2/AVX-512,
 # ARMv8.2) for runtime dispatch. Keep it out of the global LTO so inline
 # copies built for those ISAs cannot replace the baseline ones elsewhere.
