@@ -98,7 +98,8 @@ if (WHISPER_NODE_WASM)
     PRIVATE ${VAD_CPP_DIR}/src ${VAD_CPP_DIR}/src/ggml-vad-cpu ${GGML_SOURCE_DIR}
   )
   target_compile_definitions(vad PRIVATE VAD_WITH_CPU_KERNELS)
-  target_compile_options(vad PRIVATE -msimd128 -fno-math-errno -fno-trapping-math)
+  # vad-cpu.cpp uses std::sqrt without including <cmath> (vad.cpp bug)
+  target_compile_options(vad PRIVATE -msimd128 -fno-math-errno -fno-trapping-math "SHELL:-include cmath")
   # one frame (streaming) and 8 frames at once (offline) must give identical spectra
   set_source_files_properties(${VAD_CPP_DIR}/src/models/frame_dft.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
   target_link_libraries(vad PUBLIC ggml)
@@ -288,8 +289,17 @@ set(WHISPER_NODE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR})
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x64")
   set(CMAKE_SYSTEM_PROCESSOR x86_64)
 endif()
+if (MSVC)
+  # vad.cpp's own kernels use GCC builtins (__builtin_cpu_supports, ...) and
+  # VLAs, which MSVC rejects: run its graphs on the stock ggml-cpu kernels.
+  set(VAD_CPU_KERNELS OFF CACHE BOOL "vad.cpp: use its own CPU kernels" FORCE)
+endif()
 add_subdirectory(${VAD_CPP_DIR} ${CMAKE_BINARY_DIR}/vad.cpp)
 set(CMAKE_SYSTEM_PROCESSOR ${WHISPER_NODE_SYSTEM_PROCESSOR})
+if (TARGET ggml-vad-cpu AND NOT MSVC)
+  # vad-cpu.cpp uses std::sqrt without including <cmath> (vad.cpp bug)
+  target_compile_options(ggml-vad-cpu PRIVATE "SHELL:-include cmath")
+endif()
 # ggml-vad-cpu compiles some files with higher ISA flags (AVX2/AVX-512,
 # ARMv8.2) for runtime dispatch. Keep it out of the global LTO so inline
 # copies built for those ISAs cannot replace the baseline ones elsewhere.
