@@ -58,27 +58,86 @@ void WhisperSession::unlock() {
 }
 
 // WhisperVadSession implementation
-WhisperVadSession::WhisperVadSession(const std::string& modelPath, whisper_vad_context* context)
-    : path(modelPath), ctx(context) {
+WhisperVadSession::WhisperVadSession(const std::string& modelPath, vad_model* model)
+    : path(modelPath), ctx(model) {
+    if (ctx) {
+        sampleRate = vad_model_sample_rate(ctx);
+        hopSamples = vad_model_hop_samples(ctx);
+        arch = vad_model_arch(ctx);
+    }
 }
 
 WhisperVadSession::~WhisperVadSession() {
-    if (ctx) {
-        whisper_vad_free(ctx);
-        ctx = nullptr;
-    }
+    std::lock_guard<std::mutex> lock(mtx);
+    freeLocked();
 }
 
 bool WhisperVadSession::isValid() const {
     return ctx != nullptr;
 }
 
-void WhisperVadSession::lock() {
-    mtx.lock();
+bool WhisperVadSession::retain() {
+    std::lock_guard<std::mutex> lock(stateMtx);
+    if (releasing) {
+        return false;
+    }
+    inflight++;
+    return true;
 }
 
-void WhisperVadSession::unlock() {
-    mtx.unlock();
+void WhisperVadSession::releaseLocked() {
+    bool freeNow = false;
+    {
+        std::lock_guard<std::mutex> lock(stateMtx);
+        freeNow = --inflight == 0 && releasing;
+    }
+    if (freeNow) {
+        freeLocked();
+    }
+}
+
+void WhisperVadSession::requestRelease() {
+    bool idle = false;
+    {
+        std::lock_guard<std::mutex> lock(stateMtx);
+        releasing = true;
+        idle = inflight == 0;
+    }
+    if (idle) {
+        // No call holds mtx for long (at most one finishing right now)
+        std::lock_guard<std::mutex> lock(mtx);
+        freeLocked();
+    }
+}
+
+void WhisperVadSession::freeOrphansLocked() {
+    std::vector<std::shared_ptr<VadStreamState>> collected;
+    {
+        std::lock_guard<std::mutex> lock(orphansMtx);
+        collected.swap(orphans);
+    }
+    for (auto& state : collected) {
+        if (state->stream) {
+            vad_stream_free(state->stream);
+            state->stream = nullptr;
+        }
+        streams.erase(state);
+    }
+}
+
+void WhisperVadSession::freeLocked() {
+    freeOrphansLocked();
+    for (auto& state : streams) {
+        if (state->stream) {
+            vad_stream_free(state->stream);
+            state->stream = nullptr;
+        }
+    }
+    streams.clear();
+    if (ctx) {
+        vad_model_free(ctx);
+        ctx = nullptr;
+    }
 }
 
 // ParakeetSession implementation
@@ -193,8 +252,8 @@ int getNProcessorsFromOptions(const Napi::Object& options) {
     return 1;
 }
 
-whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
-    whisper_vad_params params = whisper_vad_default_params();
+vad_segment_params createVadParamsFromOptions(const Napi::Object& options) {
+    vad_segment_params params = vad_segment_default_params();
 
     auto propNames = options.GetPropertyNames();
     for (uint32_t i = 0; i < propNames.Length(); i++) {
@@ -203,17 +262,19 @@ whisper_vad_params createVadParamsFromOptions(const Napi::Object& options) {
 
         if (key == "threshold" && value.IsNumber()) {
             params.threshold = value.As<Napi::Number>().FloatValue();
+        } else if (key == "negThreshold" && value.IsNumber()) {
+            params.neg_threshold = value.As<Napi::Number>().FloatValue();
         } else if (key == "minSpeechDurationMs" && value.IsNumber()) {
-            params.min_speech_duration_ms = value.As<Napi::Number>().Int32Value();
+            params.min_speech_ms = value.As<Napi::Number>().Int32Value();
         } else if (key == "minSilenceDurationMs" && value.IsNumber()) {
-            params.min_silence_duration_ms = value.As<Napi::Number>().Int32Value();
+            params.min_silence_ms = value.As<Napi::Number>().Int32Value();
         } else if (key == "maxSpeechDurationS" && value.IsNumber()) {
-            params.max_speech_duration_s = value.As<Napi::Number>().FloatValue();
+            params.max_speech_s = value.As<Napi::Number>().FloatValue();
         } else if (key == "speechPadMs" && value.IsNumber()) {
             params.speech_pad_ms = value.As<Napi::Number>().Int32Value();
-        } else if (key == "samplesOverlap" && value.IsNumber()) {
-            params.samples_overlap = value.As<Napi::Number>().FloatValue();
         }
+        // samplesOverlap (whisper.cpp's windowed VAD) has no counterpart: vad.cpp
+        // streams the whole buffer with exact Silero state, nothing overlaps.
     }
 
     return params;
@@ -293,23 +354,6 @@ Napi::Object createParakeetTranscribeResult(Napi::Env env, parakeet_context* ctx
     }
     result.Set("result", text);
     result.Set("segments", segments);
-
-    return result;
-}
-
-Napi::Object createVadResult(Napi::Env env, bool hasSpeech, float speechProbability, const std::vector<std::pair<int64_t, int64_t>>& segments) {
-    auto result = Napi::Object::New(env);
-    result.Set("is_speech", hasSpeech);
-    result.Set("speech_probability", speechProbability);
-
-    auto speechTimestamps = Napi::Array::New(env);
-    for (size_t i = 0; i < segments.size(); i++) {
-        auto segment = Napi::Object::New(env);
-        segment.Set("start", segments[i].first);
-        segment.Set("end", segments[i].second);
-        speechTimestamps.Set(i, segment);
-    }
-    result.Set("speech_timestamps", speechTimestamps);
 
     return result;
 }

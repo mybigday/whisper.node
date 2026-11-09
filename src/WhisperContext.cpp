@@ -3,6 +3,8 @@
 #include "whisper.h"
 #include "common-whisper.h"
 #include "ggml-backend.h"
+#include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -272,88 +274,86 @@ private:
     bool aborted_ = false;
 };
 
-// Helper class for async VAD
+// Ends a registered VAD call (WhisperVadSession::retain) while `mtx` is still
+// held: declare it right after the lock. May free the session when release()
+// is waiting for this call.
+struct VadCallGuard {
+    WhisperVadSession* session;
+    explicit VadCallGuard(WhisperVadSession* s) : session(s) {}
+    ~VadCallGuard() { session->releaseLocked(); }
+};
+
+// Offline VAD: speech probabilities for the whole buffer (a fresh vad.cpp
+// stream, so the Silero state spans the input), then silero-vad's segmentation.
+// Segment times are in 10 ms units, as with whisper.cpp's VAD before.
 class WhisperVadWorker : public Napi::AsyncWorker {
 public:
     WhisperVadWorker(
         const Napi::Function& callback,
         WhisperVadSessionPtr session,
-        const std::vector<float>& audioData,
-        const whisper_vad_params& vadParams
-    ) : AsyncWorker(callback), session_(session), audioData_(audioData), vadParams_(vadParams) {}
+        std::vector<float>&& audioData,
+        const vad_segment_params& vadParams
+    ) : AsyncWorker(callback), session_(session), audioData_(std::move(audioData)), vadParams_(vadParams),
+        retained_(session && session->retain()) {}
 
 protected:
     void Execute() override {
-        if (!session_ || !session_->isValid()) {
+        if (!session_ || !retained_) {
             SetError("Invalid VAD context");
             return;
         }
 
-        if (audioData_.empty()) {
-            SetError("Empty audio data");
-            return;
-        }
-
-        // Lock the session to ensure thread safety
         std::lock_guard<std::mutex> lock(session_->mtx);
-        
+        VadCallGuard guard(session_.get());
+        session_->freeOrphansLocked();
         if (!session_->ctx) {
             SetError("VAD context was destroyed");
             return;
         }
-
-        // Use proper VAD detection
-        hasSpeech_ = whisper_vad_detect_speech(session_->ctx, audioData_.data(), audioData_.size());
-
-        // Calculate speech probability from VAD probabilities
-        int n_probs = whisper_vad_n_probs(session_->ctx);
-        float* probs = whisper_vad_probs(session_->ctx);
-        
-        if (n_probs > 0 && probs) {
-            // Calculate average probability across all frames
-            float prob_sum = 0.0f;
-            for (int i = 0; i < n_probs; i++) {
-                prob_sum += probs[i];
-            }
-            speechProbability_ = prob_sum / n_probs;
-        } else {
-            // Fallback: use simple binary probability based on detection
-            speechProbability_ = hasSpeech_ ? 0.8f : 0.1f;
+        if (audioData_.empty()) {
+            return;
         }
 
-        if (hasSpeech_) {
-            // Get VAD segments using provided parameters
-            whisper_vad_segments* segments = whisper_vad_segments_from_samples(
-                session_->ctx, vadParams_, audioData_.data(), audioData_.size());
-            
-            if (segments) {
-                int n_segments = whisper_vad_segments_n_segments(segments);
-                
-                for (int i = 0; i < n_segments; i++) {
-                    float t0 = whisper_vad_segments_get_segment_t0(segments, i);
-                    float t1 = whisper_vad_segments_get_segment_t1(segments, i);
-                    
-                    segments_.push_back({t0, t1});
-                }
-                
-                whisper_vad_free_segments(segments);
-            }
+        const int hop = session_->hopSamples;
+        const int nSamples = static_cast<int>(audioData_.size());
+        std::vector<float> probs(static_cast<size_t>(nSamples / hop + 1));
+        int nProbs = vad_detect(session_->ctx, audioData_.data(), nSamples, probs.data(), static_cast<int>(probs.size()));
+        if (nProbs < 0) {
+            SetError("VAD detection failed");
+            return;
+        }
+        nProbs = std::min(nProbs, static_cast<int>(probs.size()));
+
+        std::vector<vad_segment> segments(16);
+        for (;;) {
+            int n = vad_segments_from_probs(
+                probs.data(), nProbs, 1, hop, session_->sampleRate, nSamples,
+                vadParams_, segments.data(), static_cast<int>(segments.size()));
+            const bool fits = n <= static_cast<int>(segments.size());
+            segments.resize(static_cast<size_t>(n));
+            if (fits) break;
+        }
+
+        const double toCentiseconds = 100.0 / session_->sampleRate;
+        segments_.reserve(segments.size());
+        for (const auto& segment : segments) {
+            segments_.push_back({
+                static_cast<float>(segment.start * toCentiseconds),
+                static_cast<float>(segment.end * toCentiseconds),
+            });
         }
     }
 
     void OnOK() override {
         Napi::Env env = Env();
-        Napi::Array result = Napi::Array::New(env);
-        
-        // Create VadSegment[] - array of objects with t0 and t1 properties
+        Napi::Array result = Napi::Array::New(env, segments_.size());
         for (size_t i = 0; i < segments_.size(); i++) {
             Napi::Object segment = Napi::Object::New(env);
             segment.Set("t0", segments_[i].first);
             segment.Set("t1", segments_[i].second);
             result.Set(i, segment);
         }
-        
-        Callback().Call({Env().Null(), result});
+        Callback().Call({env.Null(), result});
     }
 
     void OnError(const Napi::Error& error) override {
@@ -361,12 +361,165 @@ protected:
     }
 
 private:
-    WhisperVadSessionPtr session_;  // Hold shared pointer instead of raw pointer
+    WhisperVadSessionPtr session_;
     std::vector<float> audioData_;
-    whisper_vad_params vadParams_;
-    bool hasSpeech_ = false;
-    float speechProbability_ = 0.0f;
-    std::vector<std::pair<float, float>> segments_;  // Changed to float for time values
+    vad_segment_params vadParams_;
+    bool retained_;
+    std::vector<std::pair<float, float>> segments_;
+};
+
+// WhisperVadContext.createStream()
+class WhisperVadStreamCreateWorker : public Napi::AsyncWorker {
+public:
+    WhisperVadStreamCreateWorker(Napi::Env env, WhisperVadSessionPtr session)
+        : AsyncWorker(env), session_(session), retained_(session && session->retain()),
+          deferred_(Napi::Promise::Deferred::New(env)) {}
+
+    Napi::Promise Promise() { return deferred_.Promise(); }
+
+protected:
+    void Execute() override {
+        if (!session_ || !retained_) {
+            SetError("Invalid VAD context");
+            return;
+        }
+        std::lock_guard<std::mutex> lock(session_->mtx);
+        VadCallGuard guard(session_.get());
+        session_->freeOrphansLocked();
+        if (!session_->ctx) {
+            SetError("VAD context was destroyed");
+            return;
+        }
+        state_ = std::make_shared<VadStreamState>();
+        state_->stream = vad_stream_new(session_->ctx);
+        if (!state_->stream) {
+            SetError("Failed to create a VAD stream");
+            return;
+        }
+        session_->streams.insert(state_);
+    }
+
+    void OnOK() override {
+        deferred_.Resolve(WhisperVadStream::NewInstance(Env(), session_, state_));
+    }
+
+    void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+private:
+    WhisperVadSessionPtr session_;
+    bool retained_;
+    std::shared_ptr<VadStreamState> state_;
+    Napi::Promise::Deferred deferred_;
+};
+
+// One call on a WhisperVadStream. Started by the stream's FIFO; starts the
+// next call once settled.
+class WhisperVadStreamWorker : public Napi::AsyncWorker {
+public:
+    enum class Op { Push, Flush, Reset, Release };
+
+    WhisperVadStreamWorker(
+        Napi::Env env,
+        Napi::Object streamObject,
+        WhisperVadSessionPtr session,
+        std::shared_ptr<VadStreamState> state,
+        Op op,
+        std::vector<float>&& audio = {}
+    ) : AsyncWorker(env),
+        streamRef_(Napi::Persistent(streamObject)),
+        session_(session),
+        state_(state),
+        op_(op),
+        audio_(std::move(audio)),
+        retained_(session && session->retain()),
+        deferred_(Napi::Promise::Deferred::New(env)) {}
+
+    Napi::Promise Promise() { return deferred_.Promise(); }
+
+protected:
+    void Execute() override {
+        if (!session_ || !state_ || !retained_) {
+            // Not retained: the context was released, and its streams with it
+            if (op_ != Op::Release) SetError("VAD stream not found");
+            return;
+        }
+        std::lock_guard<std::mutex> lock(session_->mtx);
+        VadCallGuard guard(session_.get());
+        session_->freeOrphansLocked();
+        vad_stream* stream = state_->stream;
+        if (!stream) {
+            // Released, or freed with its context
+            if (op_ != Op::Release) SetError("VAD stream not found");
+            return;
+        }
+        switch (op_) {
+            case Op::Push: {
+                const int nSamples = static_cast<int>(audio_.size());
+                const int maxProbs = std::max(vad_stream_n_pending(stream, nSamples), 0);
+                probs_.resize(static_cast<size_t>(maxProbs));
+                int n = vad_stream_push(stream, audio_.data(), nSamples, probs_.data(), maxProbs);
+                if (n < 0) {
+                    SetError("VAD stream push failed");
+                    return;
+                }
+                probs_.resize(static_cast<size_t>(n));
+                break;
+            }
+            case Op::Flush: {
+                const int maxProbs = std::max(vad_stream_n_flush(stream), 0);
+                probs_.resize(static_cast<size_t>(maxProbs));
+                int n = vad_stream_flush(stream, probs_.data(), maxProbs);
+                if (n < 0) {
+                    SetError("VAD stream flush failed");
+                    return;
+                }
+                probs_.resize(static_cast<size_t>(n));
+                break;
+            }
+            case Op::Reset:
+                vad_stream_reset(stream);
+                break;
+            case Op::Release:
+                vad_stream_free(stream);
+                state_->stream = nullptr;
+                session_->streams.erase(state_);
+                break;
+        }
+    }
+
+    void OnOK() override {
+        Napi::Env env = Env();
+        if (op_ == Op::Push || op_ == Op::Flush) {
+            Napi::Array result = Napi::Array::New(env, probs_.size());
+            for (size_t i = 0; i < probs_.size(); i++) {
+                result.Set(i, Napi::Number::New(env, probs_[i]));
+            }
+            deferred_.Resolve(result);
+        } else {
+            deferred_.Resolve(env.Undefined());
+        }
+        finish();
+    }
+
+    void OnError(const Napi::Error& error) override {
+        deferred_.Reject(error.Value());
+        finish();
+    }
+
+private:
+    void finish() {
+        WhisperVadStream::Unwrap(streamRef_.Value())->runNext();
+        streamRef_.Reset();
+    }
+
+    Napi::ObjectReference streamRef_;  // keeps the stream object alive until settled
+    WhisperVadSessionPtr session_;
+    std::shared_ptr<VadStreamState> state_;
+    Op op_;
+    std::vector<float> audio_;
+    bool retained_;
+    std::vector<float> probs_;
+    Napi::Promise::Deferred deferred_;
 };
 
 // WhisperContext implementation
@@ -1006,7 +1159,7 @@ void WhisperContext::ReleaseAllSync(const Napi::CallbackInfo& info) {
     }
 }
 
-// WhisperVadContext implementation
+// WhisperVadContext implementation (vad.cpp)
 WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::ObjectWrap<WhisperVadContext>(info) {
     Napi::Env env = info.Env();
 
@@ -1017,32 +1170,50 @@ WhisperVadContext::WhisperVadContext(const Napi::CallbackInfo& info) : Napi::Obj
 
     auto options = info[0].As<Napi::Object>();
     std::string modelPath = whisper_utils::getString(options.Get("filePath"));
-    bool useGpu = whisper_utils::getBool(options.Get("useGpu"), USE_GPU);
-    int nThreads = whisper_utils::getInt(options.Get("nThreads"), std::thread::hardware_concurrency());
+    // useGpu is ignored: VAD always runs on the CPU (vad.cpp's own kernels),
+    // which is fastest for these small per-hop graphs. 1 thread is best too.
+    int nThreads = whisper_utils::getInt(options.Get("nThreads"), 1);
 
     if (modelPath.empty()) {
         Napi::TypeError::New(env, "Model path is required").ThrowAsJavaScriptException();
         return;
     }
 
-    // Initialize VAD context with proper parameters
-    whisper_vad_context_params vparams = whisper_vad_default_context_params();
-    vparams.use_gpu = useGpu;
-    vparams.gpu_device = 0;
-    vparams.n_threads = nThreads;
+    vad_model_params params = vad_model_default_params();
+    params.n_threads = nThreads > 0 ? nThreads : 1;
 
-    whisper_vad_context* ctx = whisper_vad_init_from_file_with_params(modelPath.c_str(), vparams);
-    if (!ctx) {
-        Napi::Error::New(env, "Failed to initialize whisper vad context").ThrowAsJavaScriptException();
+    vad_model* model = vad_model_load(modelPath.c_str(), params);
+    if (!model) {
+        Napi::Error::New(env, "Failed to load the VAD model").ThrowAsJavaScriptException();
         return;
     }
-    _sess = std::make_shared<WhisperVadSession>(modelPath, ctx);
+    // vad.cpp also loads turn-end and diarization models; only speech
+    // probabilities at 16 kHz are wired up for now.
+    if (vad_model_output(model) != VAD_OUTPUT_SPEECH || vad_model_n_outputs(model) != 1) {
+        std::string arch = vad_model_arch(model);
+        vad_model_free(model);
+        Napi::Error::New(env, "Unsupported VAD model (" + arch + "): only speech detection models are supported")
+            .ThrowAsJavaScriptException();
+        return;
+    }
+    if (vad_model_sample_rate(model) != WHISPER_SAMPLE_RATE) {
+        vad_model_free(model);
+        Napi::Error::New(env, "Unsupported VAD model: expected a 16 kHz model").ThrowAsJavaScriptException();
+        return;
+    }
+    _sess = std::make_shared<WhisperVadSession>(modelPath, model);
+    _sampleRate = _sess->sampleRate;
+    _hopSamples = _sess->hopSamples;
+    _arch = _sess->arch;
 
     // Build metadata (persistent reference so it outlives the constructor scope)
     auto meta = Napi::Object::New(env);
     meta.Set("filePath", modelPath);
-    meta.Set("useGpu", useGpu);
-    meta.Set("nThreads", nThreads);
+    meta.Set("useGpu", false);
+    meta.Set("nThreads", params.n_threads);
+    meta.Set("sampleRate", _sampleRate);
+    meta.Set("hopSamples", _hopSamples);
+    meta.Set("arch", _arch);
     _meta = Napi::Persistent(meta);
 
     g_vad_contexts.add(this);
@@ -1055,10 +1226,7 @@ WhisperVadContext::~WhisperVadContext() {
 void WhisperVadContext::releaseSync() {
     if (_sess) {
         std::lock_guard<std::mutex> lock(_sess->mtx);
-        if (_sess->ctx) {
-            whisper_vad_free(_sess->ctx);
-            _sess->ctx = nullptr;
-        }
+        _sess->freeLocked();
     }
     _sess.reset();
 }
@@ -1098,10 +1266,14 @@ void WhisperVadContext::Init(Napi::Env env, Napi::Object& exports) {
     Napi::Function func = DefineClass(env, "WhisperVadContext", {
         StaticMethod("toggleNativeLog", &WhisperVadContext::ToggleNativeLog),
         StaticMethod("loadModelInfo", &WhisperVadContext::ModelInfo),
+        InstanceAccessor("sampleRate", &WhisperVadContext::GetSampleRate, nullptr),
+        InstanceAccessor("hopSamples", &WhisperVadContext::GetHopSamples, nullptr),
+        InstanceAccessor("arch", &WhisperVadContext::GetArch, nullptr),
         InstanceMethod("getModelInfo", &WhisperVadContext::GetModelInfo),
         InstanceMethod("detectSpeechFile", &WhisperVadContext::DetectSpeechFile),
         InstanceMethod("detectSpeech", &WhisperVadContext::DetectSpeechFile),
         InstanceMethod("detectSpeechData", &WhisperVadContext::DetectSpeechData),
+        InstanceMethod("createStream", &WhisperVadContext::CreateStream),
         InstanceMethod("release", &WhisperVadContext::Release),
         InstanceMethod("releaseSync", &WhisperVadContext::ReleaseSync),
         StaticMethod("releaseAllSync", &WhisperVadContext::ReleaseAllSync),
@@ -1115,6 +1287,30 @@ Napi::Value WhisperVadContext::GetModelInfo(const Napi::CallbackInfo& info) {
         return info.Env().Null();
     }
     return _meta.Value();
+}
+
+Napi::Value WhisperVadContext::GetSampleRate(const Napi::CallbackInfo& info) {
+    return Napi::Number::New(info.Env(), _sampleRate);
+}
+
+Napi::Value WhisperVadContext::GetHopSamples(const Napi::CallbackInfo& info) {
+    return Napi::Number::New(info.Env(), _hopSamples);
+}
+
+Napi::Value WhisperVadContext::GetArch(const Napi::CallbackInfo& info) {
+    return Napi::String::New(info.Env(), _arch);
+}
+
+static Napi::Function createVadPromiseCallback(Napi::Env env, Napi::Promise::Deferred deferred) {
+    return Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
+        if (cbInfo.Length() >= 2) {
+            if (!cbInfo[0].IsNull()) {
+                deferred.Reject(cbInfo[0]);
+            } else {
+                deferred.Resolve(cbInfo[1]);
+            }
+        }
+    });
 }
 
 Napi::Value WhisperVadContext::DetectSpeechFile(const Napi::CallbackInfo& info) {
@@ -1132,26 +1328,10 @@ Napi::Value WhisperVadContext::DetectSpeechFile(const Napi::CallbackInfo& info) 
     auto deferred = Napi::Promise::Deferred::New(env);
 
     try {
-        // Load audio file
         std::vector<float> audioData = whisper_utils::loadAudioFile(filePath);
-
-        // Create VAD parameters
-        whisper_vad_params vadParams = whisper_utils::createVadParamsFromOptions(options);
-
-        // Create async worker - pass shared pointer to session
-        auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
-            if (cbInfo.Length() >= 2) {
-                if (!cbInfo[0].IsNull()) {
-                    deferred.Reject(cbInfo[0]);
-                } else {
-                    deferred.Resolve(cbInfo[1]);
-                }
-            }
-        });
-
-        auto worker = new WhisperVadWorker(callback, _sess, audioData, vadParams);
+        vad_segment_params vadParams = whisper_utils::createVadParamsFromOptions(options);
+        auto worker = new WhisperVadWorker(createVadPromiseCallback(env, deferred), _sess, std::move(audioData), vadParams);
         worker->Queue();
-
     } catch (const std::exception& e) {
         deferred.Reject(Napi::Error::New(env, e.what()).Value());
     }
@@ -1174,26 +1354,10 @@ Napi::Value WhisperVadContext::DetectSpeechData(const Napi::CallbackInfo& info) 
     auto deferred = Napi::Promise::Deferred::New(env);
 
     try {
-        // Convert ArrayBuffer to float array
         std::vector<float> audioData = whisper_utils::convertAudioBufferToFloat(audioBuffer);
-
-        // Create VAD parameters
-        whisper_vad_params vadParams = whisper_utils::createVadParamsFromOptions(options);
-
-        // Create async worker - pass shared pointer to session
-        auto callback = Napi::Function::New(env, [deferred](const Napi::CallbackInfo& cbInfo) {
-            if (cbInfo.Length() >= 2) {
-                if (!cbInfo[0].IsNull()) {
-                    deferred.Reject(cbInfo[0]);
-                } else {
-                    deferred.Resolve(cbInfo[1]);
-                }
-            }
-        });
-
-        auto worker = new WhisperVadWorker(callback, _sess, audioData, vadParams);
+        vad_segment_params vadParams = whisper_utils::createVadParamsFromOptions(options);
+        auto worker = new WhisperVadWorker(createVadPromiseCallback(env, deferred), _sess, std::move(audioData), vadParams);
         worker->Queue();
-
     } catch (const std::exception& e) {
         deferred.Reject(Napi::Error::New(env, e.what()).Value());
     }
@@ -1201,12 +1365,175 @@ Napi::Value WhisperVadContext::DetectSpeechData(const Napi::CallbackInfo& info) 
     return deferred.Promise();
 }
 
+Napi::Value WhisperVadContext::CreateStream(const Napi::CallbackInfo& info) {
+    auto worker = new WhisperVadStreamCreateWorker(info.Env(), _sess);
+    auto promise = worker->Promise();
+    worker->Queue();
+    return promise;
+}
+
 Napi::Value WhisperVadContext::Release(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    auto deferred = Napi::Promise::Deferred::New(env);
-
+    // Frees the model and its streams now, or right after the calls already
+    // made on them, not when the last holder (a stream object) drops it.
+    // Calls made from now on fail.
+    if (_sess) {
+        _sess->requestRelease();
+    }
     _sess.reset();
+    auto deferred = Napi::Promise::Deferred::New(env);
     deferred.Resolve(env.Undefined());
-
     return deferred.Promise();
+}
+
+// WhisperVadStream implementation
+struct WhisperVadAddonData {
+    Napi::FunctionReference vadStreamConstructor;
+};
+
+void WhisperVadStream::Init(Napi::Env env, Napi::Object& exports) {
+    Napi::Function func = DefineClass(env, "WhisperVadStream", {
+        InstanceAccessor("sampleRate", &WhisperVadStream::GetSampleRate, nullptr),
+        InstanceAccessor("hopSamples", &WhisperVadStream::GetHopSamples, nullptr),
+        InstanceMethod("push", &WhisperVadStream::Push),
+        InstanceMethod("flush", &WhisperVadStream::Flush),
+        InstanceMethod("reset", &WhisperVadStream::Reset),
+        InstanceMethod("release", &WhisperVadStream::Release),
+    });
+
+    auto* data = new WhisperVadAddonData();
+    data->vadStreamConstructor = Napi::Persistent(func);
+    env.SetInstanceData<WhisperVadAddonData>(data);
+    // Not exported: streams come from WhisperVadContext.createStream()
+}
+
+Napi::Object WhisperVadStream::NewInstance(
+    Napi::Env env,
+    WhisperVadSessionPtr session,
+    std::shared_ptr<VadStreamState> state) {
+    auto* data = env.GetInstanceData<WhisperVadAddonData>();
+    Napi::Object object = data->vadStreamConstructor.New({});
+    auto* stream = WhisperVadStream::Unwrap(object);
+    stream->_sess = session;
+    stream->_state = state;
+    stream->_sampleRate = session->sampleRate;
+    stream->_hopSamples = session->hopSamples;
+    return object;
+}
+
+WhisperVadStream::WhisperVadStream(const Napi::CallbackInfo& info) : Napi::ObjectWrap<WhisperVadStream>(info) {}
+
+WhisperVadStream::~WhisperVadStream() {
+    // Collected without release(). No call of this stream is in flight (each
+    // one holds a reference to this object), but another call on the context
+    // may hold the lock for long (a whole offline detection): never wait for
+    // it on the JS thread, hand the stream to the next call to free instead.
+    if (!_sess || !_state) {
+        return;
+    }
+    std::unique_lock<std::mutex> lock(_sess->mtx, std::try_to_lock);
+    if (lock.owns_lock()) {
+        if (_state->stream) {
+            vad_stream_free(_state->stream);
+            _state->stream = nullptr;
+        }
+        _sess->streams.erase(_state);
+        return;
+    }
+    std::lock_guard<std::mutex> orphansLock(_sess->orphansMtx);
+    _sess->orphans.push_back(_state);
+}
+
+Napi::Value WhisperVadStream::GetSampleRate(const Napi::CallbackInfo& info) {
+    return Napi::Number::New(info.Env(), _sampleRate);
+}
+
+Napi::Value WhisperVadStream::GetHopSamples(const Napi::CallbackInfo& info) {
+    return Napi::Number::New(info.Env(), _hopSamples);
+}
+
+void WhisperVadStream::enqueue(Napi::AsyncWorker* worker) {
+    if (_running) {
+        _pending.push_back(worker);
+        return;
+    }
+    _running = true;
+    worker->Queue();
+}
+
+void WhisperVadStream::runNext() {
+    if (_pending.empty()) {
+        _running = false;
+        return;
+    }
+    Napi::AsyncWorker* worker = _pending.front();
+    _pending.pop_front();
+    worker->Queue();
+}
+
+Napi::Value WhisperVadStream::Push(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    std::vector<float> audio;
+    try {
+        if (info.Length() >= 1 && info[0].IsArrayBuffer()) {
+            auto buffer = info[0].As<Napi::ArrayBuffer>();
+            audio = whisper_utils::convertAudioBufferToFloat(buffer);
+        } else if (info.Length() >= 1 && info[0].IsTypedArray()) {
+            auto typed = info[0].As<Napi::TypedArray>();
+            const auto type = typed.TypedArrayType();
+            const uint8_t* data = static_cast<const uint8_t*>(typed.ArrayBuffer().Data()) + typed.ByteOffset();
+            if (type == napi_float32_array) {
+                // Float samples in [-1, 1], as the WASM package accepts
+                audio.resize(typed.ElementLength());
+                memcpy(audio.data(), data, typed.ByteLength());
+            } else if (type == napi_uint8_array || type == napi_int16_array) {
+                // PCM16 bytes / samples
+                auto bytes = Napi::ArrayBuffer::New(env, typed.ByteLength());
+                memcpy(bytes.Data(), data, typed.ByteLength());
+                audio = whisper_utils::convertAudioBufferToFloat(bytes);
+            } else {
+                Napi::TypeError::New(env, "Expected ArrayBuffer, Uint8Array, Int16Array or Float32Array").ThrowAsJavaScriptException();
+                return env.Null();
+            }
+        } else {
+            Napi::TypeError::New(env, "Expected ArrayBuffer, Uint8Array, Int16Array or Float32Array").ThrowAsJavaScriptException();
+            return env.Null();
+        }
+    } catch (const std::exception& e) {
+        auto deferred = Napi::Promise::Deferred::New(env);
+        deferred.Reject(Napi::Error::New(env, e.what()).Value());
+        return deferred.Promise();
+    }
+
+    // The audio is copied above, so the caller may reuse its buffer right away
+    auto worker = new WhisperVadStreamWorker(
+        env, info.This().As<Napi::Object>(), _sess, _state, WhisperVadStreamWorker::Op::Push, std::move(audio));
+    auto promise = worker->Promise();
+    enqueue(worker);
+    return promise;
+}
+
+Napi::Value WhisperVadStream::Flush(const Napi::CallbackInfo& info) {
+    auto worker = new WhisperVadStreamWorker(
+        info.Env(), info.This().As<Napi::Object>(), _sess, _state, WhisperVadStreamWorker::Op::Flush);
+    auto promise = worker->Promise();
+    enqueue(worker);
+    return promise;
+}
+
+Napi::Value WhisperVadStream::Reset(const Napi::CallbackInfo& info) {
+    auto worker = new WhisperVadStreamWorker(
+        info.Env(), info.This().As<Napi::Object>(), _sess, _state, WhisperVadStreamWorker::Op::Reset);
+    auto promise = worker->Promise();
+    enqueue(worker);
+    return promise;
+}
+
+Napi::Value WhisperVadStream::Release(const Napi::CallbackInfo& info) {
+    auto worker = new WhisperVadStreamWorker(
+        info.Env(), info.This().As<Napi::Object>(), _sess, _state, WhisperVadStreamWorker::Op::Release);
+    auto promise = worker->Promise();
+    enqueue(worker);
+    return promise;
 }

@@ -41,6 +41,8 @@
     "src/whisper.rn/vendor/whisper.cpp/ggml/src/*.{h,hpp,cpp,cc,c}",
     "src/whisper.rn/vendor/whisper.cpp/ggml/src/CMakeLists.txt",
     "src/whisper.rn/vendor/whisper.cpp/ggml/src/ggml-cpu/**/*",
+    "src/whisper.rn/vendor/vad.cpp/CMakeLists.txt",
+    "src/whisper.rn/vendor/vad.cpp/{include,src}/**/*",
     "lib/browser.mjs",
     "lib/*.js",
     "lib/*.ts",

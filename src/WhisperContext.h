@@ -2,6 +2,7 @@
 
 #include "common.hpp"
 #include <atomic>
+#include <deque>
 #include <unordered_map>
 
 #ifdef NO_GPU_SUPPORT
@@ -66,15 +67,55 @@ public:
 
 private:
     // Instance methods
-    Napi::Value GetSystemInfo(const Napi::CallbackInfo& info);
     Napi::Value GetModelInfo(const Napi::CallbackInfo& info);
+    Napi::Value GetSampleRate(const Napi::CallbackInfo& info);
+    Napi::Value GetHopSamples(const Napi::CallbackInfo& info);
+    Napi::Value GetArch(const Napi::CallbackInfo& info);
     void ReleaseSync(const Napi::CallbackInfo& info);
     Napi::Value DetectSpeechFile(const Napi::CallbackInfo& info);
     Napi::Value DetectSpeechData(const Napi::CallbackInfo& info);
+    Napi::Value CreateStream(const Napi::CallbackInfo& info);
     Napi::Value Release(const Napi::CallbackInfo& info);
 
     // Internal data
-    std::string _info;
     Napi::ObjectReference _meta;
     WhisperVadSessionPtr _sess = nullptr;
+    int _sampleRate = 0;
+    int _hopSamples = 0;
+    std::string _arch;
+};
+
+// Stateful VAD over live audio, created by WhisperVadContext.createStream().
+// Calls on one stream run in call order: each one waits for the previous to
+// settle (a FIFO of not yet queued workers, only touched on the JS thread).
+class WhisperVadStream : public Napi::ObjectWrap<WhisperVadStream> {
+public:
+    WhisperVadStream(const Napi::CallbackInfo& info);
+    ~WhisperVadStream();
+
+    static void Init(Napi::Env env, Napi::Object& exports);
+    static Napi::Object NewInstance(
+        Napi::Env env,
+        WhisperVadSessionPtr session,
+        std::shared_ptr<VadStreamState> state);
+
+    // Called from a finished stream worker (JS thread) to start the next call
+    void runNext();
+
+private:
+    Napi::Value GetSampleRate(const Napi::CallbackInfo& info);
+    Napi::Value GetHopSamples(const Napi::CallbackInfo& info);
+    Napi::Value Push(const Napi::CallbackInfo& info);
+    Napi::Value Flush(const Napi::CallbackInfo& info);
+    Napi::Value Reset(const Napi::CallbackInfo& info);
+    Napi::Value Release(const Napi::CallbackInfo& info);
+
+    void enqueue(Napi::AsyncWorker* worker);
+
+    WhisperVadSessionPtr _sess = nullptr;
+    std::shared_ptr<VadStreamState> _state;
+    int _sampleRate = 0;
+    int _hopSamples = 0;
+    std::deque<Napi::AsyncWorker*> _pending;
+    bool _running = false;
 };

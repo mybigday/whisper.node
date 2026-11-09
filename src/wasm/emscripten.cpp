@@ -1,5 +1,6 @@
 #include "whisper.h"
 #include "parakeet.h"
+#include "vad.h"
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
@@ -37,17 +38,31 @@ struct WhisperSession {
     }
 };
 
+// vad.cpp model and the streams created on it (freed before the model)
 struct VadSession {
     std::string path;
-    whisper_vad_context * ctx = nullptr;
+    vad_model * ctx = nullptr;
     std::mutex mutex;
+    int sample_rate = 0;
+    int hop_samples = 0;
+    std::string arch;
+    int next_stream_id = 1;
+    std::map<int, vad_stream *> streams;
 
-    VadSession(std::string model_path, whisper_vad_context * context)
-        : path(std::move(model_path)), ctx(context) {}
+    VadSession(std::string model_path, vad_model * model)
+        : path(std::move(model_path)), ctx(model) {
+        sample_rate = vad_model_sample_rate(ctx);
+        hop_samples = vad_model_hop_samples(ctx);
+        arch = vad_model_arch(ctx);
+    }
 
     ~VadSession() {
+        for (auto & entry : streams) {
+            vad_stream_free(entry.second);
+        }
+        streams.clear();
         if (ctx) {
-            whisper_vad_free(ctx);
+            vad_model_free(ctx);
             ctx = nullptr;
         }
     }
@@ -216,15 +231,16 @@ whisper_full_params create_full_params(const val & options) {
     return params;
 }
 
-whisper_vad_params create_vad_params(const val & options) {
-    whisper_vad_params params = whisper_vad_default_params();
+vad_segment_params create_vad_params(const val & options) {
+    vad_segment_params params = vad_segment_default_params();
 
     params.threshold = get_float(options, "threshold", params.threshold);
-    params.min_speech_duration_ms = get_int(options, "minSpeechDurationMs", params.min_speech_duration_ms);
-    params.min_silence_duration_ms = get_int(options, "minSilenceDurationMs", params.min_silence_duration_ms);
-    params.max_speech_duration_s = get_float(options, "maxSpeechDurationS", params.max_speech_duration_s);
+    params.neg_threshold = get_float(options, "negThreshold", params.neg_threshold);
+    params.min_speech_ms = get_int(options, "minSpeechDurationMs", params.min_speech_ms);
+    params.min_silence_ms = get_int(options, "minSilenceDurationMs", params.min_silence_ms);
+    params.max_speech_s = get_float(options, "maxSpeechDurationS", params.max_speech_s);
     params.speech_pad_ms = get_int(options, "speechPadMs", params.speech_pad_ms);
-    params.samples_overlap = get_float(options, "samplesOverlap", params.samples_overlap);
+    // samplesOverlap (whisper.cpp's windowed VAD) has no counterpart in vad.cpp
 
     return params;
 }
@@ -393,33 +409,46 @@ val init_whisper(const std::string & model_path, bool use_gpu, bool use_flash_at
     return result;
 }
 
-val init_vad(const std::string & model_path, bool use_gpu, int n_threads) {
+val init_vad(const std::string & model_path, bool /* use_gpu: VAD always runs on the CPU */, int n_threads) {
     if (model_path.empty()) {
         return error_result("Model path is required");
     }
 
-    whisper_vad_context_params params = whisper_vad_default_context_params();
-    params.use_gpu = use_gpu;
-    params.gpu_device = 0;
-    params.n_threads = clamp_thread_count(n_threads);
+    vad_model_params params = vad_model_default_params();
+    params.n_threads = clamp_thread_count(n_threads > 0 ? n_threads : 1);
 
-    whisper_vad_context * ctx = whisper_vad_init_from_file_with_params(model_path.c_str(), params);
-    if (!ctx) {
-        return error_result("Failed to initialize whisper vad context");
+    vad_model * model = vad_model_load(model_path.c_str(), params);
+    if (!model) {
+        return error_result("Failed to load the VAD model");
+    }
+    if (vad_model_output(model) != VAD_OUTPUT_SPEECH || vad_model_n_outputs(model) != 1) {
+        std::string arch = vad_model_arch(model);
+        vad_model_free(model);
+        return error_result("Unsupported VAD model (" + arch + "): only speech detection models are supported");
+    }
+    if (vad_model_sample_rate(model) != WHISPER_SAMPLE_RATE) {
+        vad_model_free(model);
+        return error_result("Unsupported VAD model: expected a 16 kHz model");
     }
 
     int id = 0;
+    VadSession * session = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_sessions_mutex);
         id = g_next_session_id++;
-        g_vad_sessions[id] = std::make_unique<VadSession>(model_path, ctx);
+        auto owned = std::make_unique<VadSession>(model_path, model);
+        session = owned.get();
+        g_vad_sessions[id] = std::move(owned);
     }
 
     val result = ok();
     result.set("id", id);
     result.set("filePath", model_path);
-    result.set("useGpu", use_gpu);
+    result.set("useGpu", false);
     result.set("nThreads", params.n_threads);
+    result.set("sampleRate", session->sample_rate);
+    result.set("hopSamples", session->hop_samples);
+    result.set("arch", session->arch);
     return result;
 }
 
@@ -568,6 +597,8 @@ val transcribe_parakeet(int id, const val & audio, const val & options) {
     return create_parakeet_transcribe_result(session->ctx, false);
 }
 
+// Offline detection: probabilities for the whole buffer, then silero-vad's
+// segmentation. Segment times are in 10 ms units, as before.
 val detect_speech(int id, const val & audio, const val & options) {
     VadSession * session = get_vad_session(id);
     if (!session || !session->ctx) {
@@ -575,43 +606,135 @@ val detect_speech(int id, const val & audio, const val & options) {
     }
 
     std::vector<float> pcmf32 = copy_float32_array(audio);
-    if (pcmf32.empty()) {
-        return error_result("Empty audio data");
-    }
 
     std::lock_guard<std::mutex> lock(session->mutex);
     if (!session->ctx) {
         return error_result("VAD context was destroyed");
     }
 
-    whisper_vad_params params = create_vad_params(options);
-    const bool has_speech = whisper_vad_detect_speech(session->ctx, pcmf32.data(), static_cast<int>(pcmf32.size()));
-
     val result = ok();
     val segments = val::array();
-
-    if (has_speech) {
-        whisper_vad_segments * vad_segments = whisper_vad_segments_from_samples(
-            session->ctx,
-            params,
-            pcmf32.data(),
-            static_cast<int>(pcmf32.size())
-        );
-
-        if (vad_segments) {
-            const int n_segments = whisper_vad_segments_n_segments(vad_segments);
-            for (int i = 0; i < n_segments; ++i) {
-                val segment = val::object();
-                segment.set("t0", whisper_vad_segments_get_segment_t0(vad_segments, i));
-                segment.set("t1", whisper_vad_segments_get_segment_t1(vad_segments, i));
-                segments.call<void>("push", segment);
-            }
-            whisper_vad_free_segments(vad_segments);
-        }
+    result.set("segments", segments);
+    if (pcmf32.empty()) {
+        return result;
     }
 
-    result.set("segments", segments);
+    const vad_segment_params params = create_vad_params(options);
+    const int hop = session->hop_samples;
+    const int n_samples = static_cast<int>(pcmf32.size());
+    std::vector<float> probs(static_cast<size_t>(n_samples / hop + 1));
+    int n_probs = vad_detect(session->ctx, pcmf32.data(), n_samples, probs.data(), static_cast<int>(probs.size()));
+    if (n_probs < 0) {
+        return error_result("VAD detection failed");
+    }
+    n_probs = std::min(n_probs, static_cast<int>(probs.size()));
+
+    std::vector<vad_segment> found(16);
+    for (;;) {
+        int n = vad_segments_from_probs(
+            probs.data(), n_probs, 1, hop, session->sample_rate, n_samples,
+            params, found.data(), static_cast<int>(found.size()));
+        const bool fits = n <= static_cast<int>(found.size());
+        found.resize(static_cast<size_t>(n));
+        if (fits) break;
+    }
+
+    const double to_centiseconds = 100.0 / session->sample_rate;
+    for (const auto & item : found) {
+        val segment = val::object();
+        segment.set("t0", static_cast<float>(item.start * to_centiseconds));
+        segment.set("t1", static_cast<float>(item.end * to_centiseconds));
+        segments.call<void>("push", segment);
+    }
     return result;
+}
+
+val probs_result(const std::vector<float> & probs) {
+    val result = ok();
+    val array = val::array();
+    for (float prob : probs) {
+        array.call<void>("push", prob);
+    }
+    result.set("probs", array);
+    return result;
+}
+
+val vad_stream_create(int id) {
+    VadSession * session = get_vad_session(id);
+    if (!session || !session->ctx) {
+        return error_result("Invalid VAD context");
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    vad_stream * stream = vad_stream_new(session->ctx);
+    if (!stream) {
+        return error_result("Failed to create a VAD stream");
+    }
+    const int stream_id = session->next_stream_id++;
+    session->streams[stream_id] = stream;
+    val result = ok();
+    result.set("streamId", stream_id);
+    return result;
+}
+
+// Runs `op(stream)` on a stream of a VAD context, under the context lock
+template <typename Op>
+val with_vad_stream(int id, int stream_id, Op op) {
+    VadSession * session = get_vad_session(id);
+    if (!session) {
+        return error_result("VAD stream not found");
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    auto it = session->streams.find(stream_id);
+    if (it == session->streams.end()) {
+        return error_result("VAD stream not found");
+    }
+    return op(it->second);
+}
+
+val vad_stream_push_audio(int id, int stream_id, const val & audio) {
+    std::vector<float> pcmf32 = copy_float32_array(audio);
+    return with_vad_stream(id, stream_id, [&](vad_stream * stream) {
+        const int n_samples = static_cast<int>(pcmf32.size());
+        std::vector<float> probs(static_cast<size_t>(std::max(vad_stream_n_pending(stream, n_samples), 0)));
+        int n = vad_stream_push(stream, pcmf32.data(), n_samples, probs.data(), static_cast<int>(probs.size()));
+        if (n < 0) {
+            return error_result("VAD stream push failed");
+        }
+        probs.resize(static_cast<size_t>(n));
+        return probs_result(probs);
+    });
+}
+
+val vad_stream_flush_audio(int id, int stream_id) {
+    return with_vad_stream(id, stream_id, [](vad_stream * stream) {
+        std::vector<float> probs(static_cast<size_t>(std::max(vad_stream_n_flush(stream), 0)));
+        int n = vad_stream_flush(stream, probs.data(), static_cast<int>(probs.size()));
+        if (n < 0) {
+            return error_result("VAD stream flush failed");
+        }
+        probs.resize(static_cast<size_t>(n));
+        return probs_result(probs);
+    });
+}
+
+val vad_stream_reset_state(int id, int stream_id) {
+    return with_vad_stream(id, stream_id, [](vad_stream * stream) {
+        vad_stream_reset(stream);
+        return ok();
+    });
+}
+
+void vad_stream_release(int id, int stream_id) {
+    VadSession * session = get_vad_session(id);
+    if (!session) {
+        return;  // released with its context
+    }
+    std::lock_guard<std::mutex> lock(session->mutex);
+    auto it = session->streams.find(stream_id);
+    if (it != session->streams.end()) {
+        vad_stream_free(it->second);
+        session->streams.erase(it);
+    }
 }
 
 val bench(int id, int n_threads) {
@@ -720,6 +843,11 @@ EMSCRIPTEN_BINDINGS(whisper_node_wasm) {
     emscripten::function("__wasm_init_vad", &init_vad);
     emscripten::function("__wasm_free_vad", &free_vad);
     emscripten::function("__wasm_detect_speech", &detect_speech);
+    emscripten::function("__wasm_vad_stream_create", &vad_stream_create);
+    emscripten::function("__wasm_vad_stream_push", &vad_stream_push_audio);
+    emscripten::function("__wasm_vad_stream_flush", &vad_stream_flush_audio);
+    emscripten::function("__wasm_vad_stream_reset", &vad_stream_reset_state);
+    emscripten::function("__wasm_vad_stream_release", &vad_stream_release);
 
     emscripten::function("__wasm_init_parakeet", &init_parakeet);
     emscripten::function("__wasm_free_parakeet", &free_parakeet);

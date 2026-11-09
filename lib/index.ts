@@ -2,6 +2,7 @@ import { loadModule } from './binding';
 import type {
   WhisperContext,
   WhisperVadContext,
+  WhisperVadStream,
   ParakeetContext,
   NativeContextOptions,
   NativeVadContextOptions,
@@ -21,6 +22,7 @@ import type {
 export type {
   WhisperContext,
   WhisperVadContext,
+  WhisperVadStream,
   ParakeetContext,
   NativeContextOptions,
   NativeVadContextOptions,
