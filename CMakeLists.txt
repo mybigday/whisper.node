@@ -138,6 +138,13 @@ add_definitions(-DNAPI_VERSION=${napi_build_version})
 message(STATUS "NAPI_VERSION: ${napi_build_version}")
 
 set(CMAKE_SYSTEM_PROCESSOR ${NODE_ARCH})
+
+# ggml matches this variable against canonical names; Node reports "x64", which falls through to the
+# generic scalar kernels and, with them, to a single-threaded build.
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x64")
+  set(CMAKE_SYSTEM_PROCESSOR x86_64)
+endif()
+
 string(TOLOWER ${CMAKE_SYSTEM_NAME} PLATFORM)
 string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} ARCH)
 
