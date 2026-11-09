@@ -116,20 +116,35 @@ await parakeetContext.release()
 ```js
 import { initWhisperVad } from '@fugood/whisper.node'
 
-// Context-based VAD (for multiple detections)
+// Speech model: whisper.cpp's ggml-silero-*.bin or a vad.cpp GGUF (Silero, FireRedVAD)
 const vadContext = await initWhisperVad({
-  model: 'path/to/ggml-vad.bin',
-  useGpu: true,
-  nThreads: 2
+  filePath: 'path/to/ggml-silero-v6.2.0.bin',
+  nThreads: 1, // Default: 1, best for the small per-hop graphs
 }, libVariant)
 
-const result = await vadContext.detectSpeechFile('audio.wav')
+// Offline detection: speech segments, t0/t1 in 10 ms units
+const segments = await vadContext.detectSpeechFile('audio.wav')
+const segments2 = await vadContext.detectSpeechData(audioBuffer, {
+  threshold: 0.5,
+  minSpeechDurationMs: 250,
+  minSilenceDurationMs: 100,
+  speechPadMs: 30,
+})
 
-const result2 = await vadContext.detectSpeechData(audioBuffer)
-await vadContext.release()
+// Stateful detection over live audio: the model state carries over between
+// pushes, one speech probability per `hopSamples` (512 samples = 32 ms for Silero)
+const stream = await vadContext.createStream()
+const probs = await stream.push(pcmChunk) // any length
+const lastProbs = await stream.flush() // end of audio
+await stream.reset() // start a new audio stream
+await stream.release()
+
+await vadContext.release() // also frees its streams
 ```
 
 **Note**: Audio data should be 16-bit PCM, mono, 16kHz format. The library expects ArrayBuffer containing raw audio data.
+
+VAD runs on [vad.cpp](https://github.com/mybigday/vad.cpp), always on the CPU (`useGpu` is ignored). Probabilities follow official Silero exactly; `samplesOverlap` is ignored and `negThreshold` is available.
 
 ### Native Logs
 
@@ -247,8 +262,8 @@ node examples/wasm/server.mjs
 ```
 
 In the WASM package, `useGpu: true` enables WebGPU for whisper transcription
-when the browser supports `navigator.gpu`. VAD currently falls back to CPU in
-the browser package because the Silero VAD graph hits unsupported WebGPU ops.
+when the browser supports `navigator.gpu`. VAD always runs on the CPU
+(vad.cpp's own kernels, with WASM SIMD).
 
 ## Lib Variants
 

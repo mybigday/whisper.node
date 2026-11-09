@@ -16,6 +16,7 @@ static Napi::Value register_cleanup(const Napi::CallbackInfo &info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   WhisperContext::Init(env, exports);
   WhisperVadContext::Init(env, exports);
+  WhisperVadStream::Init(env, exports);
   ParakeetContext::Init(env, exports);
 
   // Register our cleanup handler for module unload

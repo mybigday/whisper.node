@@ -80,17 +80,35 @@ export interface ParakeetTranscribeOptions {
 }
 
 export interface VadOptions {
+  /** Probability threshold to consider as speech (Default: 0.5) */
   threshold?: number
+  /** Silence threshold while in speech (Default: max(threshold - 0.15, 0.01)) */
+  negThreshold?: number
   minSpeechDurationMs?: number
   minSilenceDurationMs?: number
+  /** Default: no limit */
   maxSpeechDurationS?: number
   speechPadMs?: number
+  /** @deprecated Ignored since VAD runs on vad.cpp */
   samplesOverlap?: number
 }
 
+/** Speech segment, times in 10 ms units (centiseconds) */
 export interface VadSegment {
   t0: number
   t1: number
+}
+
+/** Stateful VAD over live audio, from `WhisperVadContext.createStream()` */
+export interface WhisperVadStream {
+  readonly sampleRate: number
+  readonly hopSamples: number
+  /** Feed 16 kHz mono PCM16 (or Float32Array) audio; resolves with the new speech probabilities */
+  push(audio: ArrayBuffer | ArrayBufferView | Float32Array): Promise<number[]>
+  /** End of audio: resolves with the probabilities still pending */
+  flush(): Promise<number[]>
+  reset(): Promise<void>
+  release(): Promise<void>
 }
 
 export interface BenchResult {
@@ -156,6 +174,10 @@ export interface ParakeetContext {
 }
 
 export interface WhisperVadContext {
+  readonly sampleRate: number
+  readonly hopSamples: number
+  readonly arch: string
+  createStream(): Promise<WhisperVadStream>
   detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechData(

@@ -11,10 +11,10 @@
 
 #include "whisper.h"
 #include "parakeet.h"
+#include "vad.h"
 
 // Forward declarations
 struct whisper_context;
-struct whisper_vad_context;
 struct whisper_full_params;
 struct parakeet_context;
 
@@ -30,11 +30,10 @@ namespace whisper_utils {
 
     whisper_full_params createFullParamsFromOptions(const Napi::Object& options);
     int getNProcessorsFromOptions(const Napi::Object& options);
-    whisper_vad_params createVadParamsFromOptions(const Napi::Object& options);
+    vad_segment_params createVadParamsFromOptions(const Napi::Object& options);
     parakeet_full_params createParakeetParamsFromOptions(const Napi::Object& options);
     Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted = false);
     Napi::Object createParakeetTranscribeResult(Napi::Env env, parakeet_context* ctx, bool aborted = false);
-    Napi::Object createVadResult(Napi::Env env, bool hasSpeech, float speechProbability, const std::vector<std::pair<int64_t, int64_t>>& segments);
 
     std::vector<float> convertAudioBufferToFloat(Napi::ArrayBuffer& buffer);
     std::vector<float> loadAudioFile(const std::string& filePath);
@@ -70,19 +69,47 @@ public:
 
 using WhisperSessionPtr = std::shared_ptr<WhisperSession>;
 
-// VAD Session management
+// VAD Session management (vad.cpp model + the streams created on it)
+//
+// vad_stream objects belong to the model and must be freed before it. Every
+// operation that touches the model or one of its streams holds `mtx`.
+// release() never blocks: it frees right away when no call is in flight,
+// otherwise the last call made before it frees (calls made after it fail).
+struct VadStreamState {
+    vad_stream* stream = nullptr;  // guarded by WhisperVadSession::mtx
+};
+
 class WhisperVadSession {
 public:
     std::string path;
-    whisper_vad_context* ctx;
+    vad_model* ctx;
     std::mutex mtx;
+    int sampleRate = 0;
+    int hopSamples = 0;
+    std::string arch;
+    std::set<std::shared_ptr<VadStreamState>> streams;  // guarded by mtx
+    // Calls created and not finished yet, and whether release() was called
+    std::mutex stateMtx;
+    int inflight = 0;
+    bool releasing = false;
+    // Streams collected while `mtx` was busy; freed by the next locked call.
+    std::mutex orphansMtx;
+    std::vector<std::shared_ptr<VadStreamState>> orphans;
 
-    WhisperVadSession(const std::string& modelPath, whisper_vad_context* context);
+    WhisperVadSession(const std::string& modelPath, vad_model* model);
     ~WhisperVadSession();
 
     bool isValid() const;
-    void lock();
-    void unlock();
+    // Register a call (JS thread). False once release() was called.
+    bool retain();
+    // A registered call finished its work. Caller must hold mtx.
+    void releaseLocked();
+    // release(): free now if idle, else after the calls in flight (JS thread)
+    void requestRelease();
+    // Free streams collected while busy. Caller must hold mtx.
+    void freeOrphansLocked();
+    // Free the streams and the model. Caller must hold mtx.
+    void freeLocked();
 };
 
 using WhisperVadSessionPtr = std::shared_ptr<WhisperVadSession>;

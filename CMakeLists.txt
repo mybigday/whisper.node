@@ -18,6 +18,9 @@ option(WHISPER_NODE_WASM_THREADS "Build the browser WASM package with pthread su
 set(WHISPER_RN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/whisper.rn)
 set(WHISPER_CPP_DIR ${WHISPER_RN_DIR}/vendor/whisper.cpp)
 set(WHISPER_CPP_PATCH_FILE ${CMAKE_CURRENT_SOURCE_DIR}/scripts/whisper.cpp.patch)
+# VAD runs on vad.cpp, vendored by whisper.rn next to whisper.cpp and built
+# against the same ggml (its vad-cpu backend uses ggml's internal headers).
+set(VAD_CPP_DIR ${WHISPER_RN_DIR}/vendor/vad.cpp)
 
 if (NOT EXISTS ${WHISPER_CPP_DIR}/CMakeLists.txt)
   message(FATAL_ERROR "src/whisper.rn submodule is missing; run: git submodule update --init src/whisper.rn")
@@ -75,6 +78,31 @@ if (WHISPER_NODE_WASM)
 
   add_subdirectory(${WHISPER_CPP_DIR} ${CMAKE_BINARY_DIR}/whisper.cpp)
 
+  # vad.cpp's own CMake adds browser examples under EMSCRIPTEN that whisper.rn
+  # does not vendor, so build the library from its sources here (generic
+  # kernels with WASM SIMD128, as upstream does for Emscripten).
+  get_target_property(GGML_SOURCE_DIR ggml SOURCE_DIR)
+  file(GLOB VAD_SOURCES CONFIGURE_DEPENDS
+    ${VAD_CPP_DIR}/src/*.cpp
+    ${VAD_CPP_DIR}/src/loader/*.cpp
+    ${VAD_CPP_DIR}/src/models/*.cpp
+  )
+  add_library(vad STATIC
+    ${VAD_SOURCES}
+    ${VAD_CPP_DIR}/src/ggml-vad-cpu/vad-cpu.cpp
+    ${VAD_CPP_DIR}/src/ggml-vad-cpu/kernels_dispatch.cpp
+    ${VAD_CPP_DIR}/src/ggml-vad-cpu/kernels_generic.cpp
+  )
+  target_include_directories(vad
+    PUBLIC ${VAD_CPP_DIR}/include
+    PRIVATE ${VAD_CPP_DIR}/src ${VAD_CPP_DIR}/src/ggml-vad-cpu ${GGML_SOURCE_DIR}
+  )
+  target_compile_definitions(vad PRIVATE VAD_WITH_CPU_KERNELS)
+  target_compile_options(vad PRIVATE -msimd128 -fno-math-errno -fno-trapping-math)
+  # one frame (streaming) and 8 frames at once (offline) must give identical spectra
+  set_source_files_properties(${VAD_CPP_DIR}/src/models/frame_dft.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+  target_link_libraries(vad PUBLIC ggml)
+
   set(WASM_TARGET whisper-node-wasm)
   if (WHISPER_NODE_WASM_THREADS)
     set(WASM_OUTPUT_NAME "whisper-node.threads")
@@ -93,7 +121,7 @@ if (WHISPER_NODE_WASM)
     ${WHISPER_CPP_DIR}/ggml/include
   )
 
-  target_link_libraries(${WASM_TARGET} PRIVATE whisper parakeet)
+  target_link_libraries(${WASM_TARGET} PRIVATE whisper parakeet vad)
 
   set_target_properties(${WASM_TARGET} PROPERTIES
     OUTPUT_NAME ${WASM_OUTPUT_NAME}
@@ -253,6 +281,26 @@ if(APPLE AND NOT DEFINED GGML_METAL_MACOSX_VERSION_MIN)
 endif()
 add_subdirectory(${WHISPER_CPP_DIR} ${CMAKE_BINARY_DIR}/whisper.cpp)
 
+# vad.cpp reuses the ggml target above. It picks its runtime-dispatched kernel
+# variants (AVX2/AVX-512, ARMv8.2) from CMAKE_SYSTEM_PROCESSOR, which holds the
+# Node.js arch name here, so hand it the name it expects for x64.
+set(WHISPER_NODE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR})
+if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x64")
+  set(CMAKE_SYSTEM_PROCESSOR x86_64)
+endif()
+add_subdirectory(${VAD_CPP_DIR} ${CMAKE_BINARY_DIR}/vad.cpp)
+set(CMAKE_SYSTEM_PROCESSOR ${WHISPER_NODE_SYSTEM_PROCESSOR})
+# ggml-vad-cpu compiles some files with higher ISA flags (AVX2/AVX-512,
+# ARMv8.2) for runtime dispatch. Keep it out of the global LTO so inline
+# copies built for those ISAs cannot replace the baseline ones elsewhere.
+if (TARGET ggml-vad-cpu AND CMAKE_BUILD_TYPE STREQUAL "Release")
+  if (MSVC)
+    target_compile_options(ggml-vad-cpu PRIVATE /GL-)
+  else()
+    target_compile_options(ggml-vad-cpu PRIVATE -fno-lto)
+  endif()
+endif()
+
 if (NOT GGML_VULKAN AND NOT GGML_CUDA AND NOT GGML_METAL AND NOT GGML_CLBLAST AND NOT GGML_HEXAGON)
   add_definitions(-DNO_GPU_SUPPORT)
 endif()
@@ -304,7 +352,7 @@ endif()
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES} ${CMAKE_JS_SRC})
 set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
-target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB} whisper parakeet ggml ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${PROJECT_NAME} ${CMAKE_JS_LIB} whisper parakeet vad ggml ${CMAKE_THREAD_LIBS_INIT})
 
 add_custom_target(copy_assets ALL DEPENDS ${PROJECT_NAME})
 

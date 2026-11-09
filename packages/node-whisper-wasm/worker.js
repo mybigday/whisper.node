@@ -53,6 +53,14 @@ import WhisperNodeWasm from './index.js'
     return entry.context
   }
 
+  function getVadStream(id) {
+    var entry = contexts[id]
+    if (!entry || entry.type !== 'vadStream') {
+      throw new Error('VAD stream not found')
+    }
+    return entry.context
+  }
+
   function abortedResult() {
     return {
       result: '',
@@ -252,7 +260,43 @@ import WhisperNodeWasm from './index.js'
       case 'releaseVad':
         await getContext(args[0], 'vad').release()
         delete contexts[args[0]]
+        // Its streams were freed with it
+        Object.keys(contexts).forEach(function (key) {
+          if (contexts[key].type === 'vadStream' && contexts[key].vadId === args[0]) {
+            delete contexts[key]
+          }
+        })
         return { ok: true }
+
+      case 'vadStreamCreate': {
+        var vadStream = await getContext(args[0], 'vad').createStream()
+        var vadStreamId = nextContextId++
+        contexts[vadStreamId] = {
+          type: 'vadStream',
+          context: vadStream,
+          vadId: args[0],
+        }
+        return { id: vadStreamId }
+      }
+
+      case 'vadStreamPush':
+        return getVadStream(args[0]).push(args[1])
+
+      case 'vadStreamFlush':
+        return getVadStream(args[0]).flush()
+
+      case 'vadStreamReset':
+        await getVadStream(args[0]).reset()
+        return { ok: true }
+
+      case 'vadStreamRelease': {
+        var releasing = contexts[args[0]]
+        if (releasing && releasing.type === 'vadStream') {
+          delete contexts[args[0]]
+          await releasing.context.release()
+        }
+        return { ok: true }
+      }
 
       default:
         throw new Error('Unknown WASM worker method: ' + message.method)

@@ -1609,6 +1609,46 @@ const createWhisperNodeApi = function (root) {
       this._id = id
       this._meta = meta
       this._released = false
+      this.sampleRate = meta.sampleRate || 16000
+      this.hopSamples = meta.hopSamples || 512
+      this.arch = meta.arch || ''
+    }
+
+    WorkerWhisperVadContextInstance.prototype.createStream = async function () {
+      this._assertValid()
+      var created = await this._proxy.request('vadStreamCreate', [this._id])
+      return new WorkerWhisperVadStreamInstance(
+        this._proxy,
+        created.id,
+        this.sampleRate,
+        this.hopSamples,
+      )
+    }
+
+    // Requests reach the worker in call order and the worker-side stream
+    // serializes them, so no queue is needed here.
+    function WorkerWhisperVadStreamInstance(proxy, id, sampleRate, hopSamples) {
+      this._proxy = proxy
+      this._id = id
+      this.sampleRate = sampleRate
+      this.hopSamples = hopSamples
+    }
+
+    WorkerWhisperVadStreamInstance.prototype.push = function (audio) {
+      var data = copyFloat32Audio(audio)
+      return this._proxy.request('vadStreamPush', [this._id, data], [data.buffer])
+    }
+
+    WorkerWhisperVadStreamInstance.prototype.flush = function () {
+      return this._proxy.request('vadStreamFlush', [this._id])
+    }
+
+    WorkerWhisperVadStreamInstance.prototype.reset = function () {
+      return this._proxy.request('vadStreamReset', [this._id]).then(function () {})
+    }
+
+    WorkerWhisperVadStreamInstance.prototype.release = function () {
+      return this._proxy.request('vadStreamRelease', [this._id]).then(function () {})
     }
 
     WorkerWhisperVadContextInstance.prototype._assertValid = function () {
@@ -1663,12 +1703,7 @@ const createWhisperNodeApi = function (root) {
       var useGpu = false
       var nThreads = normalizeMaxThreads(options.nThreads || 1, runtime) || 1
 
-      if (options.useGpu === true) {
-        emitLog(
-          'WARN',
-          'WASM VAD currently falls back to CPU because ggml-webgpu does not support the VAD graph safely yet.',
-        )
-      }
+      // useGpu is ignored: VAD always runs on the CPU (vad.cpp's own kernels)
 
       var model = await ensureModel(runtime, modelSource, 'vad', options)
       var init = unwrapWasmResult(
@@ -1680,6 +1715,9 @@ const createWhisperNodeApi = function (root) {
         wasmFilePath: model.virtualPath,
         useGpu: useGpu,
         nThreads: init.nThreads,
+        sampleRate: init.sampleRate,
+        hopSamples: init.hopSamples,
+        arch: init.arch,
         bytes: model.bytes,
         cacheHit: model.cacheHit,
         cacheStored: model.cacheStored,
@@ -1694,6 +1732,78 @@ const createWhisperNodeApi = function (root) {
       this._id = id
       this._meta = meta
       this._released = false
+      this.sampleRate = meta.sampleRate || 16000
+      this.hopSamples = meta.hopSamples || 512
+      this.arch = meta.arch || ''
+    }
+
+    WhisperVadContextInstance.prototype.createStream = async function () {
+      this._assertValid()
+      var created = unwrapWasmResult(
+        await this._runtime.__wasm_vad_stream_create(this._id),
+      )
+      return new WhisperVadStreamInstance(
+        this._runtime,
+        this._id,
+        created.streamId,
+        this.sampleRate,
+        this.hopSamples,
+      )
+    }
+
+    // Stateful VAD stream: the model state carries over between pushes. Calls
+    // run in call order, each after the previous one settles.
+    function WhisperVadStreamInstance(runtime, contextId, streamId, sampleRate, hopSamples) {
+      this._runtime = runtime
+      this._contextId = contextId
+      this._streamId = streamId
+      this._queue = Promise.resolve()
+      this.sampleRate = sampleRate
+      this.hopSamples = hopSamples
+    }
+
+    WhisperVadStreamInstance.prototype._enqueue = function (op) {
+      var run = this._queue.then(op, op)
+      this._queue = run.catch(function () {})
+      return run
+    }
+
+    WhisperVadStreamInstance.prototype.push = function (audio) {
+      var self = this
+      // Copy now: the caller may reuse its buffer before this call runs
+      var data = copyFloat32Audio(audio)
+      return this._enqueue(async function () {
+        var result = unwrapWasmResult(
+          await self._runtime.__wasm_vad_stream_push(self._contextId, self._streamId, data),
+        )
+        return result.probs || []
+      })
+    }
+
+    WhisperVadStreamInstance.prototype.flush = function () {
+      var self = this
+      return this._enqueue(async function () {
+        var result = unwrapWasmResult(
+          await self._runtime.__wasm_vad_stream_flush(self._contextId, self._streamId),
+        )
+        return result.probs || []
+      })
+    }
+
+    WhisperVadStreamInstance.prototype.reset = function () {
+      var self = this
+      return this._enqueue(async function () {
+        unwrapWasmResult(
+          await self._runtime.__wasm_vad_stream_reset(self._contextId, self._streamId),
+        )
+      })
+    }
+
+    WhisperVadStreamInstance.prototype.release = function () {
+      var self = this
+      return this._enqueue(async function () {
+        await self._runtime.__wasm_vad_stream_release(self._contextId, self._streamId)
+      })
     }
 
     WhisperVadContextInstance.prototype._assertValid = function () {

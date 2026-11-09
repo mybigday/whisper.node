@@ -8,9 +8,15 @@ export interface NativeContextOptions {
 }
 
 export interface NativeVadContextOptions {
+  /**
+   * Speech model file: a vad.cpp GGUF (Silero, FireRedVAD) or whisper.cpp's
+   * `ggml-silero-*.bin`
+   */
   filePath: string,
   modelUrl?: string,
+  /** @deprecated Ignored. VAD always runs on the CPU (vad.cpp's kernels), which is fastest for a single stream. */
   useGpu?: boolean,
+  /** Number of threads to use during computation (Default: 1, best for the small per-hop graphs) */
   nThreads?: number,
   maxModelBytes?: number,
 }
@@ -81,21 +87,59 @@ export interface TranscribeResult {
 export interface VadOptions {
   /** Probability threshold to consider as speech (Default: 0.5) */
   threshold?: number,
+  /**
+   * Probability below which audio counts as silence while in speech, the lower
+   * edge of the hysteresis (Default: max(threshold - 0.15, 0.01))
+   */
+  negThreshold?: number,
   /** Min duration for a valid speech segment in ms (Default: 250) */
   minSpeechDurationMs?: number,
   /** Min silence duration to consider speech as ended in ms (Default: 100) */
   minSilenceDurationMs?: number,
-  /** Max duration of a speech segment before forcing a new segment in seconds (Default: 30) */
+  /** Max duration of a speech segment before forcing a new segment in seconds (Default: no limit) */
   maxSpeechDurationS?: number,
   /** Padding added before and after speech segments in ms (Default: 30) */
   speechPadMs?: number,
-  /** Overlap in seconds when copying audio samples from speech segment (Default: 0.1) */
+  /**
+   * @deprecated Ignored. It applied to whisper.cpp's windowed VAD; detection
+   * now keeps the model state across the whole input, so nothing overlaps.
+   */
   samplesOverlap?: number,
 }
 
+/** Speech segment, times in 10 ms units (centiseconds) */
 export interface VadSegment {
   t0: number
   t1: number
+}
+
+/**
+ * Stateful voice activity detection over live audio, created with
+ * `WhisperVadContext.createStream()`.
+ *
+ * The model state carries over between pushes, so every sample is analyzed
+ * once and each probability takes all earlier audio into account (Silero's
+ * exact streaming semantics). Calls on one stream run in call order.
+ */
+export interface WhisperVadStream {
+  /** Sample rate the stream expects (16000) */
+  readonly sampleRate: number
+  /** Samples covered by each probability (512 = 32 ms for Silero) */
+  readonly hopSamples: number
+  /**
+   * Feed 16 kHz mono audio of any length: PCM16 (ArrayBuffer, Uint8Array,
+   * Int16Array) or float samples (Float32Array). It is copied, so the buffer
+   * may be reused right away. Resolves with the speech probabilities that
+   * became available, in order: probability `i` of the stream covers samples
+   * `[i * hopSamples, (i + 1) * hopSamples)`.
+   */
+  push(audio: ArrayBuffer | Uint8Array | Int16Array | Float32Array): Promise<number[]>
+  /** End of audio: resolves with the probabilities still pending (a partial hop is zero padded). */
+  flush(): Promise<number[]>
+  /** Clear the model state and buffered audio to start a new audio stream. */
+  reset(): Promise<void>
+  /** Free the stream. Releasing the context frees its streams as well. */
+  release(): Promise<void>
 }
 
 export interface BenchResult {
@@ -194,12 +238,21 @@ export interface ParakeetContext {
 
 export interface WhisperVadContext {
   new (options: NativeVadContextOptions): WhisperVadContext
+  /** Sample rate the model expects (16000) */
+  readonly sampleRate: number
+  /** Samples between consecutive speech probabilities (512 for Silero) */
+  readonly hopSamples: number
+  /** Model architecture, e.g. `silero` */
+  readonly arch: string
   detectSpeech(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechFile(filePath: string, options?: VadOptions): Promise<VadSegment[]>
   detectSpeechData(
     audioData: ArrayBuffer,
     options?: VadOptions,
   ): Promise<VadSegment[]>
+  /** Create a stateful stream for live audio (see `WhisperVadStream`). */
+  createStream(): Promise<WhisperVadStream>
+  /** Free the model and every stream created on it. */
   release(): Promise<void>
   /**
    * Release the context synchronously. Intended for process exit handlers,
