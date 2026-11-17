@@ -5,7 +5,8 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-26]
+        # Pinned: apt.llvm.org has no LLVM 18 repository for Ubuntu 26.04 (ubuntu-latest)
+        os: [ubuntu-24.04, windows-latest, macos-26]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -21,7 +22,7 @@ jobs:
       with:
         xcode-version: '26.2'
     - name: Install LLVM and Clang
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       run: |
         curl -L https://apt.llvm.org/llvm.sh | ALL=1 sudo bash -s 18
         sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
