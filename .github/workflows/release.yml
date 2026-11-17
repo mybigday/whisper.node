@@ -31,14 +31,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Download bundled files
-        uses: actions/download-artifact@v4
-        with:
-          path: bin
-          pattern: bin-*
-          merge-multiple: true
       - run: npm install --omit=optional
-      - run: npm run build
+      # The package ships the vendored whisper.cpp sources as a build from
+      # source leaves them: with scripts/whisper.cpp.patch applied (CMake does
+      # that when configuring). No native build is needed for the package.
+      - name: Apply scripts/whisper.cpp.patch
+        run: git apply scripts/whisper.cpp.patch
       - name: Publish to NPM
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
