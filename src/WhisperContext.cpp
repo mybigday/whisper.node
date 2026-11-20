@@ -3,6 +3,8 @@
 #include "whisper.h"
 #include "common-whisper.h"
 #include "ggml-backend.h"
+#include "ggml-cpu.h"
+#include "jsi/AudioCtx.h"
 #include <algorithm>
 #include <cstring>
 #include <iostream>
@@ -24,6 +26,56 @@ struct TranscribeCallbackContext {
     std::condition_variable callbackCV;
 };
 
+// Runs whisper_full_parallel on a ggml CPU threadpool placed on the job's
+// cpu_mask, like whisper.rn's job_new.
+//
+// ggml pins the thread that computes a graph: the creating thread of the pool
+// (worker 0), or, in OpenMP builds (the default on x64), every OpenMP thread
+// of the team, which libgomp keeps for the next parallel region of the same
+// thread. Neither is undone. AsyncWorkers run on the reused libuv threads, so
+// the job runs on a thread of its own instead: its pinning, and the OpenMP
+// team it owns, end with it, and later jobs (with or without a mask) are not
+// affected. ggml has no thread affinity on Apple platforms, where no pool is
+// created (as in whisper.rn).
+static int whisper_full_with_cpu_mask(
+    whisper_context* ctx,
+    whisper_full_params params,
+    const float* samples,
+    int n_samples,
+    int n_processors,
+    const rnwhisper::cpu_params& cpu
+) {
+#if !defined(__APPLE__)
+    if (cpu.has_mask() && params.n_threads > 0) {
+        int result = -1;
+        std::thread job([&]() {
+            ggml_threadpool_params tpp = ggml_threadpool_params_default(params.n_threads);
+            std::memcpy(tpp.cpumask, cpu.mask, sizeof(tpp.cpumask));
+            tpp.strict_cpu = cpu.strict;
+            ggml_threadpool_t threadpool = ggml_threadpool_new(&tpp);
+            if (threadpool == nullptr) {
+                fprintf(stderr, "whisper.node: failed to create the cpu_mask threadpool, using the default threads\n");
+            }
+            params.threadpool = threadpool;
+            try {
+                result = whisper_full_parallel(ctx, params, samples, n_samples, n_processors);
+            } catch (...) {
+                // would otherwise terminate the process from this thread
+                result = -1;
+            }
+            if (threadpool != nullptr) {
+                ggml_threadpool_free(threadpool);
+            }
+        });
+        job.join();
+        return result;
+    }
+#else
+    (void) cpu;
+#endif
+    return whisper_full_parallel(ctx, params, samples, n_samples, n_processors);
+}
+
 // Helper class for async transcription
 class WhisperTranscribeWorker : public Napi::AsyncWorker {
 public:
@@ -33,6 +85,7 @@ public:
         const std::vector<float>& audioData,
         const whisper_full_params& params,
         int nProcessors,
+        const whisper_utils::WhisperJobOptions& jobOptions,
         std::shared_ptr<std::atomic<bool>> cancelFlag,
         Napi::ThreadSafeFunction tsfnProgress = Napi::ThreadSafeFunction(),
         Napi::ThreadSafeFunction tsfnNewSegments = Napi::ThreadSafeFunction(),
@@ -41,7 +94,7 @@ public:
         std::string language = "",
         std::string prompt = ""
     ) : AsyncWorker(callback), session_(session), audioData_(audioData), params_(params), nProcessors_(nProcessors),
-        cancelFlag_(cancelFlag), tsfnProgress_(tsfnProgress), tsfnNewSegments_(tsfnNewSegments),
+        jobOptions_(jobOptions), cancelFlag_(cancelFlag), tsfnProgress_(tsfnProgress), tsfnNewSegments_(tsfnNewSegments),
         hasProgress_(hasProgress), hasNewSegments_(hasNewSegments), language_(language), prompt_(prompt) {
             // Apply language and prompt from stored strings to ensure valid lifetime
             if (!language_.empty()) {
@@ -87,6 +140,12 @@ protected:
 
         // Create a copy of params and set up callbacks if needed
         whisper_full_params params_copy = params_;
+        if (jobOptions_.audioCtxAuto) {
+            params_copy.audio_ctx = rnwhisper_jsi::fitAudioCtx(
+                rnwhisper_jsi::effectiveAudioSamples(
+                    static_cast<int64_t>(audioData_.size()), params_copy.offset_ms, params_copy.duration_ms),
+                whisper_model_n_audio_ctx(session_->ctx));
+        }
         auto callbackCtxPtr = std::make_shared<TranscribeCallbackContext>();
         TranscribeCallbackContext& callbackCtx = *callbackCtxPtr;
         callbackCtx.tsfnProgress = tsfnProgress_;
@@ -187,7 +246,8 @@ protected:
             params_copy.new_segment_callback_user_data = &callbackCtxPtr;
         }
 
-        int result = whisper_full_parallel(session_->ctx, params_copy, audioData_.data(), audioData_.size(), nProcessors_);
+        int result = whisper_full_with_cpu_mask(
+            session_->ctx, params_copy, audioData_.data(), static_cast<int>(audioData_.size()), nProcessors_, jobOptions_.cpu);
 
         // Wait for all pending callbacks to complete before returning, unless the job was cancelled:
         // the pending callback may be the one that cancelled us and it will not return before we do
@@ -263,6 +323,7 @@ private:
     std::vector<float> audioData_;
     whisper_full_params params_;
     int nProcessors_;
+    whisper_utils::WhisperJobOptions jobOptions_;
     std::string resultText_;
     std::shared_ptr<std::atomic<bool>> cancelFlag_;
     Napi::ThreadSafeFunction tsfnProgress_;
@@ -762,12 +823,13 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
     auto deferred = Napi::Promise::Deferred::New(env);
 
     try {
-        // Load audio file
-        std::vector<float> audioData = whisper_utils::loadAudioFile(filePath);
-
         // Create parameters
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
         int nProcessors = whisper_utils::getNProcessorsFromOptions(options);
+        auto jobOptions = whisper_utils::parseWhisperJobOptions(options, params, nProcessors);
+
+        // Load audio file
+        std::vector<float> audioData = whisper_utils::loadAudioFile(filePath);
 
         // Check for onProgress callback
         Napi::ThreadSafeFunction tsfnProgress;
@@ -817,7 +879,7 @@ Napi::Value WhisperContext::TranscribeFile(const Napi::CallbackInfo& info) {
         std::string language = whisper_utils::getString(options.Get("language"));
         std::string prompt = whisper_utils::getString(options.Get("prompt"));
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments, language, prompt);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, jobOptions, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments, language, prompt);
         worker->Queue();
 
     } catch (const std::exception& e) {
@@ -876,12 +938,13 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
     auto deferred = Napi::Promise::Deferred::New(env);
 
     try {
-        // Convert ArrayBuffer to float array
-        std::vector<float> audioData = whisper_utils::convertAudioBufferToFloat(audioBuffer);
-
         // Create parameters
         whisper_full_params params = whisper_utils::createFullParamsFromOptions(options);
         int nProcessors = whisper_utils::getNProcessorsFromOptions(options);
+        auto jobOptions = whisper_utils::parseWhisperJobOptions(options, params, nProcessors);
+
+        // Convert ArrayBuffer to float array
+        std::vector<float> audioData = whisper_utils::convertAudioBufferToFloat(audioBuffer);
 
         // Check for onProgress callback
         Napi::ThreadSafeFunction tsfnProgress;
@@ -931,7 +994,7 @@ Napi::Value WhisperContext::TranscribeData(const Napi::CallbackInfo& info) {
         std::string language = whisper_utils::getString(options.Get("language"));
         std::string prompt = whisper_utils::getString(options.Get("prompt"));
 
-        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments, language, prompt);
+        auto worker = new WhisperTranscribeWorker(callback, _sess, audioData, params, nProcessors, jobOptions, cancelFlag, tsfnProgress, tsfnNewSegments, hasProgress, hasNewSegments, language, prompt);
         worker->Queue();
 
     } catch (const std::exception& e) {

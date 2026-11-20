@@ -12,6 +12,7 @@
 #include "whisper.h"
 #include "parakeet.h"
 #include "vad.h"
+#include "rn-whisper.h"
 
 // Forward declarations
 struct whisper_context;
@@ -30,6 +31,17 @@ namespace whisper_utils {
 
     whisper_full_params createFullParamsFromOptions(const Napi::Object& options);
     int getNProcessorsFromOptions(const Napi::Object& options);
+
+    // Whisper transcribe options resolved per job, as whisper.rn does
+    struct WhisperJobOptions {
+        // audioCtx: 'auto', fitted to the input length in the worker
+        bool audioCtxAuto = false;
+        // cpu_mask / cpu_strict
+        rnwhisper::cpu_params cpu;
+    };
+    // Parses audioCtx (into params.audio_ctx unless 'auto'), cpu_mask and
+    // cpu_strict. Throws std::runtime_error with whisper.rn's messages.
+    WhisperJobOptions parseWhisperJobOptions(const Napi::Object& options, whisper_full_params& params, int nProcessors);
     vad_segment_params createVadParamsFromOptions(const Napi::Object& options);
     parakeet_full_params createParakeetParamsFromOptions(const Napi::Object& options);
     Napi::Object createTranscribeResult(Napi::Env env, whisper_context* ctx, const std::string& text, bool aborted = false);

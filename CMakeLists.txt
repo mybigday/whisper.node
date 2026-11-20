@@ -339,6 +339,8 @@ include_directories(
   ${WHISPER_CPP_DIR}
   ${WHISPER_CPP_DIR}/examples
   ${WHISPER_CPP_DIR}/src
+  # whisper.rn's shared C++: rn-whisper (cpu_mask parser) and jsi/AudioCtx.h
+  ${WHISPER_RN_DIR}/cpp
 )
 
 file(
@@ -352,6 +354,7 @@ file(
     "src/ParakeetContext.h"
 )
 list(APPEND SOURCE_FILES ${WHISPER_CPP_DIR}/examples/common-whisper.cpp)
+list(APPEND SOURCE_FILES ${WHISPER_RN_DIR}/cpp/rn-whisper.cpp)
 
 if (NOT MSVC AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
   file(GLOB WIN_DYNAMIC_LOAD_SRC "src/win_dynamic_load.c")

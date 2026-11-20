@@ -6,6 +6,9 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <stdexcept>
 #include <thread>
 
 // Global logging state
@@ -250,6 +253,44 @@ int getNProcessorsFromOptions(const Napi::Object& options) {
     }
     // Default to 1 processor (no parallelization)
     return 1;
+}
+
+WhisperJobOptions parseWhisperJobOptions(const Napi::Object& options, whisper_full_params& params, int nProcessors) {
+    WhisperJobOptions job;
+
+    // audioCtx: a non-negative integer (0 = model default) or 'auto'
+    auto audioCtx = options.Get("audioCtx");
+    if (!audioCtx.IsUndefined() && !audioCtx.IsNull()) {
+        bool valid = false;
+        if (audioCtx.IsString() && audioCtx.As<Napi::String>().Utf8Value() == "auto") {
+            job.audioCtxAuto = true;
+            valid = true;
+        } else if (audioCtx.IsNumber()) {
+            double number = audioCtx.As<Napi::Number>().DoubleValue();
+            if (std::isfinite(number) && number >= 0 && number <= INT32_MAX &&
+                std::floor(number) == number) {
+                params.audio_ctx = static_cast<int>(number);
+                valid = true;
+            }
+        }
+        if (!valid) {
+            throw std::runtime_error("audioCtx must be a non-negative integer or 'auto'");
+        }
+    }
+
+    // cpu_mask / cpu_strict: same names and mask syntax as whisper.rn (and
+    // llama.node), parsed by whisper.rn's own parser
+    std::string cpuMask = getString(options.Get("cpu_mask"));
+    if (!cpuMask.empty() && !rnwhisper::parse_cpu_mask(cpuMask, job.cpu.mask)) {
+        throw std::runtime_error("Invalid cpu_mask: " + cpuMask);
+    }
+    job.cpu.strict = getBool(options.Get("cpu_strict"), false);
+    if (job.cpu.has_mask() && nProcessors > 1) {
+        // Only the calling thread's chunk could use the pool
+        throw std::runtime_error("cpu_mask is not supported with nProcessors > 1");
+    }
+
+    return job;
 }
 
 vad_segment_params createVadParamsFromOptions(const Napi::Object& options) {

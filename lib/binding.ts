@@ -44,7 +44,32 @@ export interface TranscribeOptions {
   beamSize?: number
   bestOf?: number
   prompt?: string
+  /** Number of processors to use for parallel processing with whisper_full_parallel (Default: 1 to use whisper_full) */
   nProcessors?: number
+  /**
+   * Encoder audio context size (whisper.cpp `audio_ctx`). A smaller context
+   * encodes less than the model's full 30 s window, which is faster for short
+   * audio at some cost in accuracy.
+   * - number: fixed size, a non-negative integer (0 = model default, the
+   *   default). Must not exceed the model's audio context (1500 for stock models).
+   * - 'auto': fit to the input length (after `offset`/`duration`), with ~2 s
+   *   of headroom, aligned to 64, at least 256 and capped at the model's
+   *   audio context.
+   *
+   * Other values reject the call. Native builds only (ignored by browser WASM).
+   */
+  audioCtx?: number | 'auto'
+  /**
+   * CPU affinity mask for the compute threads: hex as in llama.cpp's --cpu-mask,
+   * e.g. '0xC0' for CPUs 6 and 7, or an inclusive range like llama.cpp's
+   * --cpu-range, e.g. '6-7'. The job then runs on a ggml threadpool of
+   * maxThreads threads placed on these CPUs. Linux and Windows only: ignored on
+   * macOS, which has no thread affinity, and by browser WASM.
+   * Not supported with nProcessors > 1. An invalid mask rejects the call.
+   */
+  cpu_mask?: string
+  /** Strict CPU placement: one compute thread per CPU of cpu_mask, in order (Default: false). Requires cpu_mask. */
+  cpu_strict?: boolean
   /**
    * Progress callback, the progress is between 0 and 100
    */
