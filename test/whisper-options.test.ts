@@ -128,7 +128,7 @@ describe('Whisper cpu_mask', () => {
     async () => {
       const context = await initWhisper({ filePath: MODEL_PATH, useGpu: false })
       try {
-        for (const cpuMask of ['zz', '0xG', '6-x', '9999-']) {
+        for (const cpuMask of ['zz', '0xG', '6-7', '0x6-0x7']) {
           await expect(
             context.transcribeFile(SAMPLE_AUDIO_PATH, { cpu_mask: cpuMask }).promise,
           ).rejects.toThrow(`Invalid cpu_mask: ${cpuMask}`)
@@ -154,7 +154,7 @@ describe('Whisper cpu_mask', () => {
       try {
         const options = { ...BASE_OPTIONS, maxThreads: 2 }
         const plain = await context.transcribeFile(SAMPLE_AUDIO_PATH, options).promise
-        const masked = await context.transcribeFile(SAMPLE_AUDIO_PATH, { ...options, cpu_mask: '0-1' }).promise
+        const masked = await context.transcribeFile(SAMPLE_AUDIO_PATH, { ...options, cpu_mask: '0x3' }).promise
         const strict = await context.transcribeData(loadPcm(), {
           ...options,
           cpu_mask: '0x3',

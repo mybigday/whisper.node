@@ -86,7 +86,7 @@ const { promise } = context.transcribeData(pcmBuffer, { audioCtx: 'auto' })
 
 #### Pin the compute threads to CPU cores (`cpu_mask`)
 
-`cpu_mask` and `cpu_strict` place the `maxThreads` compute threads on chosen cores, with the same option names as whisper.rn. The mask is either hex, as in llama.cpp's `--cpu-mask` (`'0xC0'` is CPUs 6 and 7), or an inclusive range as in llama.cpp's `--cpu-range` (`'6-7'`). An invalid mask rejects the call. With `cpu_strict: true`, each thread gets one CPU of the mask in order; otherwise the threads may run on any CPU in the mask.
+`cpu_mask` and `cpu_strict` place the `maxThreads` compute threads on chosen cores, with the same option names as whisper.rn. The mask uses the same hex format as llama.node: an optional `0x` prefix, bit N selects CPU N (`'0xfc'` is CPUs 2-7, `'0xC0'` is CPUs 6 and 7). An invalid mask rejects the call. With `cpu_strict: true`, each thread gets one CPU of the mask in order; otherwise the threads may run on any CPU in the mask.
 
 ```js
 context.transcribeFile('audio.wav', { maxThreads: 2, cpu_mask: '0xC0', cpu_strict: true })

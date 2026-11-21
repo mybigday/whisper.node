@@ -60,9 +60,9 @@ export interface TranscribeOptions {
    */
   audioCtx?: number | 'auto'
   /**
-   * CPU affinity mask for the compute threads: hex as in llama.cpp's --cpu-mask,
-   * e.g. '0xC0' for CPUs 6 and 7, or an inclusive range like llama.cpp's
-   * --cpu-range, e.g. '6-7'. The job then runs on a ggml threadpool of
+   * CPU affinity mask for the compute threads, as in llama.node's cpu_mask: hex
+   * with an optional 0x prefix, bit N = CPU N (e.g. '0xfc' for CPUs 2-7, '0xC0'
+   * for CPUs 6 and 7). The job then runs on a ggml threadpool of
    * maxThreads threads placed on these CPUs. Linux and Windows only: ignored on
    * macOS, which has no thread affinity, and by browser WASM.
    * Not supported with nProcessors > 1. An invalid mask rejects the call.
